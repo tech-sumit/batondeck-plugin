@@ -7,7 +7,7 @@
     {
       "name": "batondeck",
       "source": "./plugins/batondeck",
-      "description": "Work a Conductor Kanban board as an autonomous agent over MCP: claim tasks, carry context/memory/dependencies, run worker fleets. Bundles the conductor-worker skill, commands, Cursor rules, and the Conductor MCP server (OAuth, no gcloud)."
+      "description": "Work a Conductor Kanban board as an autonomous agent over MCP: claim tasks, carry context/memory/dependencies, run worker fleets. Bundles the batondeck-worker skill, commands, Cursor rules, and the Conductor MCP server (OAuth, no gcloud)."
     }
   ]
 }
