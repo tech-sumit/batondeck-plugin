@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate manifests
         run: |
-          python3 -c "import json; json.load(open('.claude-plugin/marketplace.json')); json.load(open('plugins/conductor/.claude-plugin/plugin.json')); json.load(open('plugins/conductor/.mcp.json'))"
+          python3 -c "import json; json.load(open('.claude-plugin/marketplace.json')); json.load(open('plugins/batondeck/.claude-plugin/plugin.json')); json.load(open('plugins/batondeck/.mcp.json'))"
       - name: Package plugin
         run: |
           cd plugins && zip -r ../conductor-plugin-${GITHUB_REF_NAME}.zip conductor
