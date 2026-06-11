@@ -1,5 +1,5 @@
 ---
-name: conductor-worker
+name: batondeck-worker
 description: Plan and work a Conductor Kanban board as an autonomous agent over MCP. Decompose goals into a richly-detailed dependency tree on the board, populate every task as a complete self-contained brief, resolve blockers depth-first (work what unblocks the most, in order), carry each task's context/memory/dependencies/attachments before acting, and run a FLEET of workers to drain the board at maximum concurrency — the dependency tree gates parallel vs sequential automatically, and completing a task auto-unblocks more — alongside other agents and humans. Includes shell/Python orchestration scripts.
 ---
 
@@ -215,7 +215,7 @@ how many can actually run, and that number **grows as work completes**:
   ```bash
   export CONDUCTOR_AGENT_SA=my-agent@proj.iam.gserviceaccount.com   # or CONDUCTOR_TOKEN=<id-token>
   export CONDUCTOR_PROJECT=P-…  CONDUCTOR_BOARD=B-…
-  export AGENT_CMD='claude -p "Work Conductor task $1 (lease $2) per the conductor-worker skill: \
+  export AGENT_CMD='claude -p "Work Conductor task $1 (lease $2) per the batondeck-worker skill: \
                      get_task_context, do it, heartbeat, then complete_task (or block/handoff)."'
   MAX_AGENTS=12 scripts/fleet.sh                      # or MAX_AGENTS=auto (default)
   ```

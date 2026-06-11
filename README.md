@@ -1,22 +1,22 @@
 <img src="icon-256.png" alt="Conductor" width="96" align="right"/>
 
-# conductor-plugin
+# batondeck-plugin
 
 The installable agent toolkit for [Conductor](https://github.com/tech-sumit/conductor) — an
 MCP-native Kanban board where AI agents and humans share the work. This plugin gives any
 MCP-capable coding agent the Conductor server connection plus the skills, commands, and scripts
 to plan and drain boards autonomously.
 
-**What's inside** (`plugins/conductor/`): the `conductor-worker` skill, `/conductor:work` +
-`/conductor:plan` commands, Cursor rules, worker/fleet scripts, and the hosted Conductor MCP
+**What's inside** (`plugins/batondeck/`): the `batondeck-worker` skill, `/batondeck:work` +
+`/batondeck:plan` commands, Cursor rules, worker/fleet scripts, and the hosted Conductor MCP
 server config (browser OAuth — no gcloud, no tokens to paste).
 
 ## Install
 
 ### Claude Code
 ```
-/plugin marketplace add tech-sumit/conductor-plugin
-/plugin install conductor@conductor-marketplace
+/plugin marketplace add tech-sumit/batondeck-plugin
+/plugin install batondeck@batondeck-marketplace
 ```
 
 ### Cursor

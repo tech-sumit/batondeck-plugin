@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# conductor-worker skill — drain a Conductor board at MAXIMUM concurrency. Launches a fleet of
+# batondeck-worker skill — drain a Conductor board at MAXIMUM concurrency. Launches a fleet of
 # persistent workers (worker.sh); each claims the next workable task and runs AGENT_CMD on it. The
 # dependency tree gates parallel vs sequential automatically: independent leaves run in parallel,
 # dependents wait for their blockers, and completing a task auto-unblocks its dependants — which idle

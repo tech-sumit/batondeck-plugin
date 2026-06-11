@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# conductor-worker skill — one decentralized worker. Loops: next_task (highest-priority READY,
+# batondeck-worker skill — one decentralized worker. Loops: next_task (highest-priority READY,
 # unblocked, unclaimed) -> claim (the claim is the cross-worker mutex) -> hand the task to AGENT_CMD,
 # which does the work and completes/blocks/hands it off per the skill. The board's dependency tree
 # gates parallelism automatically; run many of these with fleet.sh for max concurrency.

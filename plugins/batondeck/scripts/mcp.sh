@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# conductor-worker skill — minimal one-shot MCP tool caller. Initialize a session, call one tool,
+# batondeck-worker skill — minimal one-shot MCP tool caller. Initialize a session, call one tool,
 # print its structuredContent JSON. Self-contained: no dependency on any particular deployment.
 #
 # Usage:   scripts/mcp.sh <tool_name> '<json-args>'

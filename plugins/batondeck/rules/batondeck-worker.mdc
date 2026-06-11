@@ -133,7 +133,7 @@ the mutex); completing a task **auto-unblocks** dependants, widening the frontie
 ```bash
 export CONDUCTOR_AGENT_SA=my-agent@proj.iam.gserviceaccount.com   # or CONDUCTOR_TOKEN=<id-token>
 export CONDUCTOR_PROJECT=P-…  CONDUCTOR_BOARD=B-…
-export AGENT_CMD='cursor-agent -p "Work Conductor task $1 (lease $2) per the conductor-worker rule: \
+export AGENT_CMD='cursor-agent -p "Work Conductor task $1 (lease $2) per the batondeck-worker rule: \
                   get_task_context, do it, heartbeat, then complete_task (or block/handoff)."'
 MAX_AGENTS=12 scripts/fleet.sh                      # or MAX_AGENTS=auto (default)
 ```

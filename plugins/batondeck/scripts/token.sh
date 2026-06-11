@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# conductor-worker skill — mint the Google ID token the MCP connection needs and print it as exports.
+# batondeck-worker skill — mint the Google ID token the MCP connection needs and print it as exports.
 # Google ID tokens last ~1h; re-run when calls start returning 401.
 #
 # Usage:  eval "$(scripts/token.sh)"      # exports CONDUCTOR_TOKEN
