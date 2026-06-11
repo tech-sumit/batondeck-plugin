@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# batondeck-worker skill — drain a Conductor board at MAXIMUM concurrency. Launches a fleet of
+# batondeck-worker skill — drain a BatonDeck board at MAXIMUM concurrency. Launches a fleet of
 # persistent workers (worker.sh); each claims the next workable task and runs AGENT_CMD on it. The
 # dependency tree gates parallel vs sequential automatically: independent leaves run in parallel,
 # dependents wait for their blockers, and completing a task auto-unblocks its dependants — which idle
@@ -8,16 +8,16 @@
 # Concurrency = min(MAX_AGENTS, current workable frontier). Set MAX_AGENTS >= the frontier's PEAK
 # width so workable tasks never wait. Default: auto-size to the current frontier (capped at HARD_CAP).
 #
-# Env: CONDUCTOR_PROJECT, CONDUCTOR_BOARD, AGENT_CMD (+ mcp.sh connection env).
+# Env: BATONDECK_PROJECT, BATONDECK_BOARD, AGENT_CMD (+ mcp.sh connection env).
 #      MAX_AGENTS  workers, or "auto" (default auto);  HARD_CAP  ceiling when auto-sizing (default 16)
 set -euo pipefail
 cd "$(dirname "$0")"
-: "${CONDUCTOR_PROJECT:?}"; : "${CONDUCTOR_BOARD:?}"; : "${AGENT_CMD:?}"
+: "${BATONDECK_PROJECT:?}"; : "${BATONDECK_BOARD:?}"; : "${AGENT_CMD:?}"
 MAX_AGENTS="${MAX_AGENTS:-auto}"
 HARD_CAP="${HARD_CAP:-16}"
 
 frontier() {
-  ./mcp.sh list_tasks "{\"projectId\":\"$CONDUCTOR_PROJECT\",\"boardId\":\"$CONDUCTOR_BOARD\",\"status\":\"READY\",\"limit\":200}" 2>/dev/null \
+  ./mcp.sh list_tasks "{\"projectId\":\"$BATONDECK_PROJECT\",\"boardId\":\"$BATONDECK_BOARD\",\"status\":\"READY\",\"limit\":200}" 2>/dev/null \
     | python3 -c "import sys,json,datetime
 d=json.load(sys.stdin)
 def claimed(t):
@@ -32,7 +32,7 @@ if [ "$MAX_AGENTS" = "auto" ]; then
   echo "Auto-sized to the current workable frontier: $MAX_AGENTS (cap $HARD_CAP). Raise MAX_AGENTS if the frontier grows."
 fi
 
-echo "Launching $MAX_AGENTS workers on $CONDUCTOR_PROJECT/$CONDUCTOR_BOARD ..."
+echo "Launching $MAX_AGENTS workers on $BATONDECK_PROJECT/$BATONDECK_BOARD ..."
 pids=()
 for i in $(seq 1 "$MAX_AGENTS"); do
   WORKER_ID="w$i" ./worker.sh &

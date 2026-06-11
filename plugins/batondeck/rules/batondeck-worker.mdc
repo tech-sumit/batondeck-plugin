@@ -1,12 +1,12 @@
 ---
-description: Plan and work a Conductor Kanban board as an autonomous agent over MCP. Use when the user asks to plan/decompose work onto Conductor, pick up or work Conductor tasks, run a fleet of workers, or otherwise drive the shared Conductor board. Decompose goals into a richly-detailed dependency tree, populate every task as a complete self-contained brief, resolve blockers depth-first, carry each task's context/memory/deps/attachments before acting, and coordinate via claims/leases alongside other agents and humans.
+description: Plan and work a BatonDeck Kanban board as an autonomous agent over MCP. Use when the user asks to plan/decompose work onto BatonDeck, pick up or work BatonDeck tasks, run a fleet of workers, or otherwise drive the shared BatonDeck board. Decompose goals into a richly-detailed dependency tree, populate every task as a complete self-contained brief, resolve blockers depth-first, carry each task's context/memory/deps/attachments before acting, and coordinate via claims/leases alongside other agents and humans.
 globs:
 alwaysApply: false
 ---
 
-# Conductor Worker (Cursor)
+# BatonDeck Worker (Cursor)
 
-You **plan** work onto a shared Conductor board and **work** it over the Model Context Protocol.
+You **plan** work onto a shared BatonDeck board and **work** it over the Model Context Protocol.
 Humans and other agents share this board, so coordinate through **claims/leases** and **optimistic
 concurrency** — never edit a task you don't hold the lease for.
 
@@ -17,7 +17,7 @@ Two jobs:
 
 ## Connect (two ways)
 
-**A — native MCP (recommended).** `.cursor/mcp.json` registers a `conductor` MCP server pointed at the
+**A — native MCP (recommended).** `.cursor/mcp.json` registers a `batondeck` MCP server pointed at the
 mcp-gateway `/mcp` endpoint via `mcp-remote`. Enable it in Cursor Settings → MCP; on first use it opens a
 **browser OAuth sign-in** (Google account picker) — no `gcloud`, no tokens to manage. Then call the tools
 directly (`list_projects`, `next_task`, `claim_task`, …).
@@ -27,20 +27,20 @@ a Google ID token with your own `gcloud` and call the core directly — every `t
 maps to `scripts/mcp.sh tool '{ … }'`:
 
 ```bash
-eval "$(scripts/token.sh)"                 # exports CONDUCTOR_TOKEN (or set CONDUCTOR_AGENT_SA to mint)
-export CONDUCTOR_PROJECT=P-…  CONDUCTOR_BOARD=B-…
+eval "$(scripts/token.sh)"                 # exports BATONDECK_TOKEN (or set BATONDECK_AGENT_SA to mint)
+export BATONDECK_PROJECT=P-…  BATONDECK_BOARD=B-…
 scripts/mcp.sh list_projects '{}'
-scripts/mcp.sh next_task "{\"projectId\":\"$CONDUCTOR_PROJECT\",\"boardId\":\"$CONDUCTOR_BOARD\"}"
+scripts/mcp.sh next_task "{\"projectId\":\"$BATONDECK_PROJECT\",\"boardId\":\"$BATONDECK_BOARD\"}"
 ```
 
 Connection env for the advanced script path (no values hardcoded except the hosted default URL):
 
 | env | meaning |
 |---|---|
-| `CONDUCTOR_CORE_URL` | core base URL (default: the hosted reference instance; set for self-hosted) |
-| `CONDUCTOR_TOKEN` | a Google ID token (audience = core URL) — bring your own, **or** leave unset to mint |
-| `CONDUCTOR_AGENT_SA` | mint a token by impersonating your agent's service account |
-| `CONDUCTOR_PROJECT` / `CONDUCTOR_BOARD` | the project/board the worker + fleet operate on |
+| `BATONDECK_CORE_URL` | core base URL (default: the hosted reference instance; set for self-hosted) |
+| `BATONDECK_TOKEN` | a Google ID token (audience = core URL) — bring your own, **or** leave unset to mint |
+| `BATONDECK_AGENT_SA` | mint a token by impersonating your agent's service account |
+| `BATONDECK_PROJECT` / `BATONDECK_BOARD` | the project/board the worker + fleet operate on |
 
 Your identity needs to be a **member of a project** (`add_member { projectId, identityId, role }`) and,
 for an agent SA, `roles/run.invoker` on the core. Then discover work: `list_projects` → `list_boards`.
@@ -131,9 +131,9 @@ the mutex); completing a task **auto-unblocks** dependants, widening the frontie
 (many independent leaves), keep chains **shallow**.
 
 ```bash
-export CONDUCTOR_AGENT_SA=my-agent@proj.iam.gserviceaccount.com   # or CONDUCTOR_TOKEN=<id-token>
-export CONDUCTOR_PROJECT=P-…  CONDUCTOR_BOARD=B-…
-export AGENT_CMD='cursor-agent -p "Work Conductor task $1 (lease $2) per the batondeck-worker rule: \
+export BATONDECK_AGENT_SA=my-agent@proj.iam.gserviceaccount.com   # or BATONDECK_TOKEN=<id-token>
+export BATONDECK_PROJECT=P-…  BATONDECK_BOARD=B-…
+export AGENT_CMD='cursor-agent -p "Work BatonDeck task $1 (lease $2) per the batondeck-worker rule: \
                   get_task_context, do it, heartbeat, then complete_task (or block/handoff)."'
 MAX_AGENTS=12 scripts/fleet.sh                      # or MAX_AGENTS=auto (default)
 ```

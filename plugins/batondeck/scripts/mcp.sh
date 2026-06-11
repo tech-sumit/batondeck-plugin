@@ -6,28 +6,28 @@
 # Example: scripts/mcp.sh next_task '{"projectId":"P-…","boardId":"B-…"}'
 #
 # Connection (env):
-#   CONDUCTOR_CORE_URL     core base URL (default: the hosted reference instance)
-#   CONDUCTOR_TOKEN        Google ID token, audience = core URL (bring your own), OR leave unset to mint:
-#   CONDUCTOR_AGENT_SA       mint by impersonating this service account (your agent's SA)
+#   BATONDECK_CORE_URL     core base URL (default: the hosted reference instance)
+#   BATONDECK_TOKEN        Google ID token, audience = core URL (bring your own), OR leave unset to mint:
+#   BATONDECK_AGENT_SA       mint by impersonating this service account (your agent's SA)
 #                            (else mint for the active gcloud principal)
-#   CONDUCTOR_ON_BEHALF_OF  optional on-behalf-of identity (only when authing as a trusted gateway SA)
+#   BATONDECK_ON_BEHALF_OF  optional on-behalf-of identity (only when authing as a trusted gateway SA)
 set -euo pipefail
 
 TOOL="${1:?usage: mcp.sh <tool> <json-args>}"
 ARGS="${2:-}"; [ -n "${ARGS}" ] || ARGS='{}'
-CORE="${CONDUCTOR_CORE_URL:-https://conductor-core-hn5syhhsja-el.a.run.app}"
+CORE="${BATONDECK_CORE_URL:-https://mcp.batondeck.com}"
 
-if [ -z "${CONDUCTOR_TOKEN:-}" ]; then
-  if [ -n "${CONDUCTOR_AGENT_SA:-}" ]; then
-    CONDUCTOR_TOKEN="$(gcloud auth print-identity-token --impersonate-service-account="${CONDUCTOR_AGENT_SA}" --audiences="${CORE}" --include-email 2>/dev/null || true)"
+if [ -z "${BATONDECK_TOKEN:-}" ]; then
+  if [ -n "${BATONDECK_AGENT_SA:-}" ]; then
+    BATONDECK_TOKEN="$(gcloud auth print-identity-token --impersonate-service-account="${BATONDECK_AGENT_SA}" --audiences="${CORE}" --include-email 2>/dev/null || true)"
   else
-    CONDUCTOR_TOKEN="$(gcloud auth print-identity-token --audiences="${CORE}" 2>/dev/null || true)"
+    BATONDECK_TOKEN="$(gcloud auth print-identity-token --audiences="${CORE}" 2>/dev/null || true)"
   fi
 fi
-[ -n "${CONDUCTOR_TOKEN:-}" ] || { echo "ERROR: no CONDUCTOR_TOKEN (set it, or set CONDUCTOR_AGENT_SA to mint one)." >&2; exit 1; }
+[ -n "${BATONDECK_TOKEN:-}" ] || { echo "ERROR: no BATONDECK_TOKEN (set it, or set BATONDECK_AGENT_SA to mint one)." >&2; exit 1; }
 
-hdr=(-H "authorization: Bearer ${CONDUCTOR_TOKEN}" -H "content-type: application/json" -H "accept: application/json, text/event-stream")
-[ -n "${CONDUCTOR_ON_BEHALF_OF:-}" ] && hdr+=(-H "x-conductor-on-behalf-of: ${CONDUCTOR_ON_BEHALF_OF}")
+hdr=(-H "authorization: Bearer ${BATONDECK_TOKEN}" -H "content-type: application/json" -H "accept: application/json, text/event-stream")
+[ -n "${BATONDECK_ON_BEHALF_OF:-}" ] && hdr+=(-H "x-batondeck-on-behalf-of: ${BATONDECK_ON_BEHALF_OF}")
 
 # Carry Cloud Run's affinity cookie across the 3 requests so the in-process MCP session sticks.
 JAR="$(mktemp)"; trap 'rm -f "${JAR}"' EXIT

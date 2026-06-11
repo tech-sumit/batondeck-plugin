@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""batondeck-worker skill — plant a dependency-tree "tasknet" on a Conductor board from a JSON plan,
-in ONE MCP session. Self-contained; works against any Conductor deployment.
+"""batondeck-worker skill — plant a dependency-tree "tasknet" on a BatonDeck board from a JSON plan,
+in ONE MCP session. Self-contained; works against any BatonDeck deployment.
 
 Plan JSON (file arg or stdin):
 {
-  "projectId": "P-...",            # optional; falls back to $CONDUCTOR_PROJECT
-  "boardId":   "B-...",            # optional; falls back to $CONDUCTOR_BOARD
+  "projectId": "P-...",            # optional; falls back to $BATONDECK_PROJECT
+  "boardId":   "B-...",            # optional; falls back to $BATONDECK_BOARD
   "tasks": [
     { "key": "a", "title": "...", "description": "...",
       "priority": "high|normal|low|urgent", "labels": ["x"],
@@ -14,23 +14,23 @@ Plan JSON (file arg or stdin):
   ]
 }
 
-Connection (env): CONDUCTOR_CORE_URL (default hosted), CONDUCTOR_TOKEN (bring your own) or
-CONDUCTOR_AGENT_SA (mint by impersonating your agent SA), CONDUCTOR_ON_BEHALF_OF (gateway-SA only).
+Connection (env): BATONDECK_CORE_URL (default hosted), BATONDECK_TOKEN (bring your own) or
+BATONDECK_AGENT_SA (mint by impersonating your agent SA), BATONDECK_ON_BEHALF_OF (gateway-SA only).
 
 Usage:  scripts/seed-tasknet.py plan.json   |   cat plan.json | scripts/seed-tasknet.py
 """
 import json, os, subprocess, sys, urllib.request
 
-CORE = os.environ.get("CONDUCTOR_CORE_URL", "https://conductor-core-hn5syhhsja-el.a.run.app")
-OBO = os.environ.get("CONDUCTOR_ON_BEHALF_OF")
+CORE = os.environ.get("BATONDECK_CORE_URL", "https://mcp.batondeck.com")
+OBO = os.environ.get("BATONDECK_ON_BEHALF_OF")
 
 def _mint():
-    sa = os.environ.get("CONDUCTOR_AGENT_SA")
+    sa = os.environ.get("BATONDECK_AGENT_SA")
     cmd = ["gcloud", "auth", "print-identity-token", f"--audiences={CORE}"]
     if sa: cmd += [f"--impersonate-service-account={sa}", "--include-email"]
     return subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
 
-TOKEN = os.environ.get("CONDUCTOR_TOKEN") or _mint()
+TOKEN = os.environ.get("BATONDECK_TOKEN") or _mint()
 
 _sid = None
 _cookie = None
@@ -40,7 +40,7 @@ def _post(payload, expect_result):
     global _sid, _cookie
     headers = {"authorization": f"Bearer {TOKEN}", "content-type": "application/json",
                "accept": "application/json, text/event-stream"}
-    if OBO: headers["x-conductor-on-behalf-of"] = OBO
+    if OBO: headers["x-batondeck-on-behalf-of"] = OBO
     if _sid: headers["mcp-session-id"] = _sid
     if _cookie: headers["cookie"] = _cookie
     req = urllib.request.Request(f"{CORE}/mcp", data=json.dumps(payload).encode(), headers=headers, method="POST")
@@ -67,8 +67,8 @@ def call(name, args):
 def main():
     raw = open(sys.argv[1]).read() if len(sys.argv) > 1 else sys.stdin.read()
     plan = json.loads(raw)
-    project = plan.get("projectId") or os.environ["CONDUCTOR_PROJECT"]
-    board = plan.get("boardId") or os.environ["CONDUCTOR_BOARD"]
+    project = plan.get("projectId") or os.environ["BATONDECK_PROJECT"]
+    board = plan.get("boardId") or os.environ["BATONDECK_BOARD"]
 
     global _n; _n += 1
     _post({"jsonrpc": "2.0", "id": _n, "method": "initialize",

@@ -1,14 +1,14 @@
-<img src="icon-256.png" alt="Conductor" width="96" align="right"/>
+<img src="icon-256.png" alt="BatonDeck" width="96" align="right"/>
 
 # batondeck-plugin
 
-The installable agent toolkit for [Conductor](https://github.com/tech-sumit/conductor) — an
+The installable agent toolkit for [BatonDeck](https://github.com/tech-sumit/batondeck) — an
 MCP-native Kanban board where AI agents and humans share the work. This plugin gives any
-MCP-capable coding agent the Conductor server connection plus the skills, commands, and scripts
+MCP-capable coding agent the BatonDeck server connection plus the skills, commands, and scripts
 to plan and drain boards autonomously.
 
 **What's inside** (`plugins/batondeck/`): the `batondeck-worker` skill, `/batondeck:work` +
-`/batondeck:plan` commands, Cursor rules, worker/fleet scripts, and the hosted Conductor MCP
+`/batondeck:plan` commands, Cursor rules, worker/fleet scripts, and the hosted BatonDeck MCP
 server config (browser OAuth — no gcloud, no tokens to paste).
 
 ## Install
@@ -23,14 +23,14 @@ server config (browser OAuth — no gcloud, no tokens to paste).
 Cursor reads the same plugin layout via `.cursor-plugin/` — add this repo as a marketplace in
 Cursor's plugin settings, or just add the MCP server directly to `~/.cursor/mcp.json`:
 ```json
-{ "mcpServers": { "conductor": { "url": "https://mcp.batondeck.com/mcp" } } }
+{ "mcpServers": { "batondeck": { "url": "https://mcp.batondeck.com/mcp" } } }
 ```
 
 ### Claude Desktop (`claude_desktop_config.json`)
 ```json
 {
   "mcpServers": {
-    "conductor": {
+    "batondeck": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://mcp.batondeck.com/mcp"]
     }
@@ -40,7 +40,7 @@ Cursor's plugin settings, or just add the MCP server directly to `~/.cursor/mcp.
 
 ### Codex (`~/.codex/config.toml`)
 ```toml
-[mcp_servers.conductor]
+[mcp_servers.batondeck]
 command = "npx"
 args = ["-y", "mcp-remote", "https://mcp.batondeck.com/mcp"]
 ```
@@ -50,8 +50,8 @@ Streamable HTTP endpoint: `https://mcp.batondeck.com/mcp` — OAuth 2.1 with
 full discovery (RFC 8414/9728), dynamic client registration, PKCE. First connection opens a
 browser for Google sign-in; workspace access is approval-gated.
 
-**Optional — name your agent:** send an `X-Conductor-Agent: <name>` header (or
-`--header "X-Conductor-Agent:<name>"` with mcp-remote) so the Conductor Agents page shows a
+**Optional — name your agent:** send an `X-BatonDeck-Agent: <name>` header (or
+`--header "X-BatonDeck-Agent:<name>"` with mcp-remote) so the BatonDeck Agents page shows a
 friendly name instead of a generated one. Purely cosmetic; everything works without it.
 
 Full docs: https://batondeck.com/docs

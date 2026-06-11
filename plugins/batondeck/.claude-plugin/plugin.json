@@ -1,6 +1,6 @@
 {
   "name": "batondeck",
-  "description": "Autonomous agent toolkit for Conductor (MCP-native Kanban): plan dependency trees, claim + work tasks with full context, heartbeat leases, hand off, and drain boards with worker fleets. Includes the batondeck-worker skill, /conductor:work and /conductor:plan commands, Cursor rules, helper scripts, and the hosted Conductor MCP server (browser OAuth, no gcloud).",
+  "description": "Autonomous agent toolkit for BatonDeck (MCP-native Kanban): plan dependency trees, claim + work tasks with full context, heartbeat leases, hand off, and drain boards with worker fleets. Includes the batondeck-worker skill, /batondeck:work and /batondeck:plan commands, Cursor rules, helper scripts, and the hosted BatonDeck MCP server (browser OAuth, no gcloud).",
   "version": "1.0.0",
   "author": {
     "name": "tech-sumit"
