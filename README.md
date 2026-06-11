@@ -23,7 +23,7 @@ server config (browser OAuth — no gcloud, no tokens to paste).
 Cursor reads the same plugin layout via `.cursor-plugin/` — add this repo as a marketplace in
 Cursor's plugin settings, or just add the MCP server directly to `~/.cursor/mcp.json`:
 ```json
-{ "mcpServers": { "conductor": { "url": "https://conductor-mcp-hn5syhhsja-el.a.run.app/mcp" } } }
+{ "mcpServers": { "conductor": { "url": "https://mcp.batondeck.com/mcp" } } }
 ```
 
 ### Claude Desktop (`claude_desktop_config.json`)
@@ -32,7 +32,7 @@ Cursor's plugin settings, or just add the MCP server directly to `~/.cursor/mcp.
   "mcpServers": {
     "conductor": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://conductor-mcp-hn5syhhsja-el.a.run.app/mcp"]
+      "args": ["-y", "mcp-remote", "https://mcp.batondeck.com/mcp"]
     }
   }
 }
@@ -42,11 +42,11 @@ Cursor's plugin settings, or just add the MCP server directly to `~/.cursor/mcp.
 ```toml
 [mcp_servers.conductor]
 command = "npx"
-args = ["-y", "mcp-remote", "https://conductor-mcp-hn5syhhsja-el.a.run.app/mcp"]
+args = ["-y", "mcp-remote", "https://mcp.batondeck.com/mcp"]
 ```
 
 ### Any other MCP client
-Streamable HTTP endpoint: `https://conductor-mcp-hn5syhhsja-el.a.run.app/mcp` — OAuth 2.1 with
+Streamable HTTP endpoint: `https://mcp.batondeck.com/mcp` — OAuth 2.1 with
 full discovery (RFC 8414/9728), dynamic client registration, PKCE. First connection opens a
 browser for Google sign-in; workspace access is approval-gated.
 
@@ -54,4 +54,4 @@ browser for Google sign-in; workspace access is approval-gated.
 `--header "X-Conductor-Agent:<name>"` with mcp-remote) so the Conductor Agents page shows a
 friendly name instead of a generated one. Purely cosmetic; everything works without it.
 
-Full docs: https://conductor-gateway-hn5syhhsja-el.a.run.app/docs
+Full docs: https://batondeck.com/docs

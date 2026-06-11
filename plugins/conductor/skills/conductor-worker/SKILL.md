@@ -21,7 +21,7 @@ mcp-gateway is an OAuth 2.1 Authorization Server, so a standards-compliant MCP c
 `mcp-remote`, the Claude MCP connectors) signs in for you via a **browser OAuth flow** — no `gcloud`,
 no tokens to manage.
 
-- **Endpoint:** `https://conductor-mcp-hn5syhhsja-el.a.run.app/mcp` (the hosted instance; for your own
+- **Endpoint:** `https://mcp.batondeck.com/mcp` (the hosted instance; for your own
   deployment use the mcp-gateway URL from `terraform -chdir=infra output -raw mcp_url` and append `/mcp`).
 - **Auth:** the client discovers the OAuth Authorization Server from the core's protected-resource
   metadata (RFC 9728) → registers (DCR) → runs the browser authorization-code + PKCE flow (federated to
