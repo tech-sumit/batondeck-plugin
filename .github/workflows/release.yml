@@ -1,0 +1,22 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate manifests
+        run: |
+          python3 -c "import json; json.load(open('.claude-plugin/marketplace.json')); json.load(open('plugins/conductor/.claude-plugin/plugin.json')); json.load(open('plugins/conductor/.mcp.json'))"
+      - name: Package plugin
+        run: |
+          cd plugins && zip -r ../conductor-plugin-${GITHUB_REF_NAME}.zip conductor
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: conductor-plugin-*.zip
+          generate_release_notes: true

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "conductor": {
+      "type": "http",
+      "url": "https://conductor-mcp-hn5syhhsja-el.a.run.app/mcp"
+    }
+  }
+}

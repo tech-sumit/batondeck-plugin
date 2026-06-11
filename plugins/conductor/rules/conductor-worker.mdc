@@ -1,0 +1,150 @@
+---
+description: Plan and work a Conductor Kanban board as an autonomous agent over MCP. Use when the user asks to plan/decompose work onto Conductor, pick up or work Conductor tasks, run a fleet of workers, or otherwise drive the shared Conductor board. Decompose goals into a richly-detailed dependency tree, populate every task as a complete self-contained brief, resolve blockers depth-first, carry each task's context/memory/deps/attachments before acting, and coordinate via claims/leases alongside other agents and humans.
+globs:
+alwaysApply: false
+---
+
+# Conductor Worker (Cursor)
+
+You **plan** work onto a shared Conductor board and **work** it over the Model Context Protocol.
+Humans and other agents share this board, so coordinate through **claims/leases** and **optimistic
+concurrency** — never edit a task you don't hold the lease for.
+
+Two jobs:
+- **Plan** — turn a goal/spec into a *dependency tree* of richly-detailed tasks on the board.
+- **Work** — pick the task that matters now (resolving blockers first), load its full context, do it,
+  and leave it as well-populated as you found it.
+
+## Connect (two ways)
+
+**A — native MCP (recommended).** `.cursor/mcp.json` registers a `conductor` MCP server pointed at the
+mcp-gateway `/mcp` endpoint via `mcp-remote`. Enable it in Cursor Settings → MCP; on first use it opens a
+**browser OAuth sign-in** (Google account picker) — no `gcloud`, no tokens to manage. Then call the tools
+directly (`list_projects`, `next_task`, `claim_task`, …).
+
+**B — terminal scripts (advanced / headless).** For CI or non-interactive runs, the bundled scripts mint
+a Google ID token with your own `gcloud` and call the core directly — every `tool { … }` in this rule
+maps to `scripts/mcp.sh tool '{ … }'`:
+
+```bash
+eval "$(scripts/token.sh)"                 # exports CONDUCTOR_TOKEN (or set CONDUCTOR_AGENT_SA to mint)
+export CONDUCTOR_PROJECT=P-…  CONDUCTOR_BOARD=B-…
+scripts/mcp.sh list_projects '{}'
+scripts/mcp.sh next_task "{\"projectId\":\"$CONDUCTOR_PROJECT\",\"boardId\":\"$CONDUCTOR_BOARD\"}"
+```
+
+Connection env for the advanced script path (no values hardcoded except the hosted default URL):
+
+| env | meaning |
+|---|---|
+| `CONDUCTOR_CORE_URL` | core base URL (default: the hosted reference instance; set for self-hosted) |
+| `CONDUCTOR_TOKEN` | a Google ID token (audience = core URL) — bring your own, **or** leave unset to mint |
+| `CONDUCTOR_AGENT_SA` | mint a token by impersonating your agent's service account |
+| `CONDUCTOR_PROJECT` / `CONDUCTOR_BOARD` | the project/board the worker + fleet operate on |
+
+Your identity needs to be a **member of a project** (`add_member { projectId, identityId, role }`) and,
+for an agent SA, `roles/run.invoker` on the core. Then discover work: `list_projects` → `list_boards`.
+
+## Plan: build a dependency tree on the board
+
+Don't create a flat list — create a **dependency tree (DAG)** so the right things are workable in the
+right order:
+
+1. **Decompose** the goal into tasks. Use `add_subtask { parentTaskId }` for parent→child, and
+   `add_dependency { fromTaskId: X, toTaskId: Y, type: "blocks" }` for "X before Y" (Y is `blockedBy` X).
+2. **Populate every task fully** (next section) — each task is a complete, self-contained brief.
+3. **Wire the whole graph**: every prerequisite is a `blockedBy` edge. The server keeps the reverse
+   `blocks` in sync and rejects cycles (`CYCLE_DETECTED`).
+4. **Leaves are workable now**: a task with no `blockedBy` is ready; others **auto-unblock**
+   (BLOCKED/blocked → READY) as blockers reach DONE.
+5. Set `priority` and `requiredCapabilities` so `next_task` surfaces the right workable task.
+
+**Fastest path — plant the whole tree at once with `scripts/seed-tasknet.py`.** Write the plan as JSON
+(tasks + `blockedBy` edges by key) and run it; it creates every task richly-populated and wires all
+edges in one session:
+
+```bash
+cat > plan.json <<'JSON'
+{ "tasks": [
+  { "key": "schema", "title": "Define the X schema", "priority": "high", "labels": ["core"],
+    "description": "What/Why/Acceptance/Refs …" },
+  { "key": "api", "title": "Build the X API", "description": "…", "blockedBy": ["schema"] },
+  { "key": "ui",  "title": "Build the X UI",  "description": "…", "blockedBy": ["api"] }
+] }
+JSON
+scripts/seed-tasknet.py plan.json
+```
+
+## Populate every task (mandatory)
+
+A task is the **complete brief** for one unit of work — assume whoever picks it up has no other
+context. Thin tasks are not allowed. Give each, as it applies:
+
+- **title** — imperative + specific. **description** — full *what* + *why* + **acceptance criteria** +
+  constraints/non-goals. **summary** (`set_summary`) — one-paragraph orientation.
+- **priority**, **labels**, **requiredCapabilities**.
+- **dependencies** (`add_dependency`) — `blockedBy` (prereqs) and `blocks` (dependants).
+- **subtasks** (`add_subtask`) when the work has parts.
+- **context items** (`add_context_item { kind, body }`): `field` (architecture/doc refs, API contracts,
+  file paths, config keys, data shapes), `decision` (choices + rationale), `note` (gotchas/examples).
+- **attachments** (`attach_file`) — **for UI work attach the designs/mockups** (`kind:"image"`); specs as
+  `kind:"file"` (returns a signed PUT URL; upload, then it's OCR'd/thumbnailed + searchable).
+- **customFields** — typed metadata (`{ architectureRef, designUrl, component, estimate }`).
+- **memory** (`write_memory`, `shared`) — durable facts the whole team reuses.
+
+Rule of thumb: **if a fact is needed to do the task, it lives on the task** — never only in your head.
+
+## Pick up work: resolve blockers first (chain navigation)
+
+Never start a task waiting on others. Find the **deepest unblocked, unclaimed task** in the chain:
+
+1. Prefer `next_task { projectId, boardId, capabilities }` — it returns only *unblocked, unclaimed,
+   eligible* tasks (the highest-priority thing you can do now).
+2. **Aiming at a blocked task?** Walk its `blockedBy` depth-first (`get_task(B)` each): `DONE` → ignore;
+   **unblocked + unclaimed** → `claim_task(B)` and start there; **itself blocked** → recurse;
+   **claimed (live lease)** → take another branch. Work the deepest workable blocker first; each DONE
+   auto-unblocks dependants up the chain.
+3. Only work your original target once its `blockedBy` is empty.
+
+## Work a task (the loop)
+
+`scripts/worker.sh` automates find → claim → run `AGENT_CMD` → repeat; `scripts/fleet.sh` runs many in
+parallel. Per task:
+
+1. **Claim** `claim_task { projectId, taskId }` → save `leaseId` + `version`. `CONFLICT_LOCKED` → pick
+   another. (Only READY tasks are claimable.)
+2. **Load + keep the full context** `get_task_context { projectId, taskId }` → summary, fields, context
+   items, deps, attachments, memory. Read *all* of it and hold it for the whole task. Also `read_memory`
+   (`agent`=private, `shared`=team, `task`=this task).
+3. **Do the work, recording as you go** — `add_context_item` (decisions/notes), `write_memory` (durable
+   facts), `update_task`/`customFields` (results). Leave it ≥ as populated as you found it.
+4. **Stay alive** `heartbeat_task { leaseId }` before the lease expires (default 5 min).
+5. **Finish** — Done → `complete_task { leaseId }` (auto-unblocks dependants on DONE). Stuck → `block_task
+   { leaseId, reason, blockedBy:[…] }` (records the edge). Passing on → `summarize_for_handoff` then
+   `handoff_task { leaseId, toAgent, memoryNote }`.
+
+## Run a fleet (max concurrency)
+
+Run **many workers in parallel** — the dependency tree decides how many can actually run, and that
+number **grows as work completes**. Each worker independently `next_task` → `claim_task` (the claim is
+the mutex); completing a task **auto-unblocks** dependants, widening the frontier. Plan **wide** trees
+(many independent leaves), keep chains **shallow**.
+
+```bash
+export CONDUCTOR_AGENT_SA=my-agent@proj.iam.gserviceaccount.com   # or CONDUCTOR_TOKEN=<id-token>
+export CONDUCTOR_PROJECT=P-…  CONDUCTOR_BOARD=B-…
+export AGENT_CMD='cursor-agent -p "Work Conductor task $1 (lease $2) per the conductor-worker rule: \
+                  get_task_context, do it, heartbeat, then complete_task (or block/handoff)."'
+MAX_AGENTS=12 scripts/fleet.sh                      # or MAX_AGENTS=auto (default)
+```
+
+## Rules
+
+- Every mutation takes the latest `version`; on `STALE`, re-read (`get_task`) and retry.
+- Respect `WIP_EXCEEDED`, `INVALID_TRANSITION`, `CYCLE_DETECTED`.
+- Use `idempotencyKey` on creates if you might retry after a network error.
+- **Never work a blocked task directly** — resolve its blocker chain first.
+- **Never leave a thin task** — populate it before moving on.
+
+Full tool list + error codes: `references/tools.md`. The server also ships prompts that script these
+loops: `pick_up_next_task`, `triage_inbox`, `summarize_for_handoff`, `decompose_into_subtasks`.
