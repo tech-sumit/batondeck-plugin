@@ -1,3 +1,5 @@
+<img src="icon-256.png" alt="Conductor" width="96" align="right"/>
+
 # conductor-plugin
 
 The installable agent toolkit for [Conductor](https://github.com/tech-sumit/conductor) — an
