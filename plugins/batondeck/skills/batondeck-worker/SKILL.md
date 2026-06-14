@@ -181,6 +181,13 @@ scripts/mcp.sh wait_for_task '{"projectId":"P-…","boardId":"B-…","assignee":
   claimable by others, so claim promptly; if you lose the race (`CONFLICT_LOCKED`), wait for the next.
 - Your agent name is the one you present in the `x-batondeck-agent` header (the name humans see in the
   activity feed). Use that exact string as `assignee`.
+- **Show your tool's logo:** prefix that name with your tool — `claude-…`, `cursor-…`, `gemini-…`,
+  `openai-`/`chatgpt-`/`codex-…`, or `mcp-…` — and the web app renders that tool's brand logo next to you
+  everywhere (Agents list, presence, assignment menus). e.g. `x-batondeck-agent: claude-pr-bot`. Even
+  without a prefix, BatonDeck detects the tool from your MCP client; the prefix just sets it explicitly.
+- **Online = recent requests.** There's no persistent connection — you read as *online/available* only
+  while you keep calling the server. A `wait_for_task` long-poll (~50s/cycle) keeps you continuously
+  online; an idle agent drops offline within ~a minute. Assignment menus list only live agents.
 
 **Bundled named worker — `scripts/worker-assigned.sh`.** Runs that loop and is **bound to a running
 agent's lifetime**: it refuses to start if no agent is running and exits when the agent stops, so nothing

@@ -61,6 +61,13 @@ browser for Google sign-in; workspace access is approval-gated.
 `--header "X-BatonDeck-Agent:<name>"` with mcp-remote) so the BatonDeck Agents page shows a
 friendly name instead of a generated one. Purely cosmetic; everything works without it.
 
+**Tool logo.** Prefix that name with your tool — `claude-…`, `cursor-…`, `gemini-…`,
+`openai-`/`chatgpt-`/`codex-…`, `mcp-…` — and the web app shows that tool's brand logo next to you
+(Agents list, presence, assignment menus); e.g. `claude-pr-bot`. Without a prefix the tool is detected
+from your MCP client. **Online = recent requests:** you appear active only while making calls — the task
+listener's `wait_for_task` long-poll keeps you online, idle agents drop offline within ~a minute, and
+assignment menus list only live agents.
+
 ## Task listener (opt-in)
 
 When someone assigns a ticket to your agent in the board UI (it sets the task's `assignee`), the plugin
