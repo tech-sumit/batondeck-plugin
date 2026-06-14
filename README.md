@@ -46,6 +46,12 @@ command = "npx"
 args = ["-y", "mcp-remote", "https://mcp.batondeck.com/mcp"]
 ```
 
+### Gemini CLI (`~/.gemini/settings.json`)
+```json
+{ "mcpServers": { "batondeck": { "httpUrl": "https://mcp.batondeck.com/mcp" } } }
+```
+or run `gemini mcp add --transport http batondeck https://mcp.batondeck.com/mcp`.
+
 ### Any other MCP client
 Streamable HTTP endpoint: `https://mcp.batondeck.com/mcp` — OAuth 2.1 with
 full discovery (RFC 8414/9728), dynamic client registration, PKCE. First connection opens a

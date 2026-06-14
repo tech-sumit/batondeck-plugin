@@ -18,8 +18,8 @@ Two jobs:
 
 Point your MCP client at the BatonDeck **mcp-gateway** Streamable HTTP endpoint (`/mcp`). The
 mcp-gateway is an OAuth 2.1 Authorization Server, so a standards-compliant MCP client (Cursor,
-`mcp-remote`, the Claude MCP connectors) signs in for you via a **browser OAuth flow** — no `gcloud`,
-no tokens to manage.
+Gemini CLI, `mcp-remote`, the Claude MCP connectors) signs in for you via a **browser OAuth flow** —
+no `gcloud`, no tokens to manage.
 
 - **Endpoint:** `https://mcp.batondeck.com/mcp` (the hosted instance; for your own
   deployment use the mcp-gateway URL from `terraform -chdir=infra output -raw mcp_url` and append `/mcp`).
