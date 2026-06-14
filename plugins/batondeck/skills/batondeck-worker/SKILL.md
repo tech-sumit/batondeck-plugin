@@ -164,6 +164,40 @@ chain and start *there*:
 This guarantees you always work **what unblocks the most**, in dependency order — not whatever you
 happened to open.
 
+## Work tasks assigned to you (the board inbox)
+
+A human (or another agent) can **route a ticket to you by name** from the board — it sets the task's
+`assignee` to your agent name. To run as a *named worker that picks up its assigned work the instant
+it's routed*, long-poll filtered to your own name:
+
+```
+scripts/mcp.sh wait_for_task '{"projectId":"P-…","boardId":"B-…","assignee":"<your-agent-name>"}'
+```
+
+- `wait_for_task { …, assignee }` blocks until a **claimable READY task assigned to that name** appears
+  (or `timeoutSec`, default 25 / max 50, elapses → `{task: null}`) — re-call in a loop. The board's
+  assignment write wakes it in ~milliseconds. `next_task { …, assignee }` is the one-shot equivalent.
+- On a hit: `claim_task` it and run the loop below. Assignment is **advisory** — the task is still
+  claimable by others, so claim promptly; if you lose the race (`CONFLICT_LOCKED`), wait for the next.
+- Your agent name is the one you present in the `x-batondeck-agent` header (the name humans see in the
+  activity feed). Use that exact string as `assignee`.
+
+**Bundled named worker — `scripts/worker-assigned.sh`.** Runs that loop and is **bound to a running
+agent's lifetime**: it refuses to start if no agent is running and exits when the agent stops, so nothing
+polls when no agent is alive.
+
+```
+ASSIGNEE="<your-agent-name>" AGENT_CMD="my-agent-runner" AGENT_PID=<agent-pid> \
+BATONDECK_PROJECT=P-… BATONDECK_BOARD=B-… scripts/worker-assigned.sh
+```
+
+- `ASSIGNEE` must equal the name the board assigns. `AGENT_CMD` is invoked per task as
+  `AGENT_CMD <taskId> <leaseId>`. `AGENT_PID` is the process the worker is tied to (default `$PPID`);
+  from a Claude Code **SessionStart hook**, pass the *session* PID (`$PPID` would be the hook).
+- **Opt out** any time: `BATONDECK_TASK_LISTENER=off` (env) or `TASK_LISTENER=off` in
+  `~/.batondeck/config` (env wins). When disabled the worker no-ops. The plugin's SessionStart hook runs
+  `listener-start.sh` (which honors this) and SessionEnd runs `listener-stop.sh`.
+
 ## Work a task (the loop)
 
 `scripts/worker.sh` automates this loop (find → claim → run your `AGENT_CMD` → repeat), and
@@ -174,21 +208,30 @@ they do per task (and what you do when working a task directly). In a shell, eac
 1. **Claim:** `claim_task { projectId, taskId }` → save the `leaseId` and `version`. On
    `CONFLICT_LOCKED`, someone else holds it — pick another. (Only READY tasks are claimable.)
    Shell: `scripts/mcp.sh claim_task '{"projectId":"P-…","taskId":"T-…"}'`.
-2. **Load the full context — and keep it.** `get_task_context { projectId, taskId }` returns the
-   **summary, fields, context items, dependencies (blockedBy/blocks), attachments, and memory**. Read
-   *all* of it and hold it in your working context for the whole task: description + `field` items say
-   *what*, `decision`/`note` items say *why*, **memory** carries durable facts, **attachments** carry
-   designs/specs. Also `read_memory` (`agent` scope = your private notes, `shared` = team-wide,
-   `task` = this task). Pull and process every populated field before you touch anything.
-   Shell: `scripts/mcp.sh get_task_context '{"projectId":"P-…","taskId":"T-…"}'`.
+2. **Load the full context — and keep it.** `get_task_context { projectId, taskId, includeUpstream: true }`
+   returns the **summary, fields, context items, dependencies (blockedBy/blocks), attachments, and
+   memory** — and with `includeUpstream`, an `upstream[]` of the **deliverables** (+title/status/summary)
+   of the tasks this one depended on. Read *all* of it and hold it in your working context for the whole
+   task: description + `field` items say *what*, `decision`/`note` items say *why*, **memory** carries
+   durable facts, **attachments** carry designs/specs, and **`upstream` deliverables are what the prior
+   tools produced** — build on them instead of re-deriving. Also `read_memory` (`agent` scope = your
+   private notes, `shared` = team-wide, `task` = this task). Pull and process every populated field
+   before you touch anything.
+   Shell: `scripts/mcp.sh get_task_context '{"projectId":"P-…","taskId":"T-…","includeUpstream":true}'`.
 3. **Do the work, recording as you go:** `add_context_item` (decisions/notes you make),
    `write_memory` (durable facts), `update_task` / `customFields` (structured results). Leave the task
-   at least as well-populated as you found it.
+   at least as well-populated as you found it. **Keep the digest current:** call
+   `set_summary { version, summary }` whenever the task's state changes meaningfully (claimed,
+   mid-progress, before a handoff) — a tight 1–3 sentence *what's done / what's next / where it stands*.
+   It's the **Agent Digest** humans and the next agent read first; treat it as a rolling status line.
 4. **Stay alive:** `heartbeat_task { leaseId }` before the lease expires (default 10 min in the live
    deployment — heartbeat every ~8 min; self-hosted default is 5 min).
 5. **Finish:**
-   - Done → `complete_task { leaseId }` (→ REVIEW, or DONE when the board skips review; reaching DONE
-     auto-unblocks dependants).
+   - Done → `complete_task { leaseId, deliverable }`. **Always pass `deliverable`** — a concise statement
+     of the work product (a result/summary, or a link/path; large files travel as attachments) so the
+     tasks you just unblocked can build on it via their `includeUpstream` context. It's stored on the
+     ticket and attributed to you. (→ REVIEW, or DONE when the board skips review; reaching DONE
+     auto-unblocks dependants.)
    - Stuck on another task → `block_task { leaseId, reason, blockedBy: [taskId,…] }` — this **records
      the dependency edge**, so chain-navigation and auto-unblock keep working.
    - Passing it on → `summarize_for_handoff` then `handoff_task { leaseId, toAgent, memoryNote }`.

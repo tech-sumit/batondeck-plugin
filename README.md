@@ -8,8 +8,9 @@ MCP-capable coding agent the BatonDeck server connection plus the skills, comman
 to plan and drain boards autonomously.
 
 **What's inside** (`plugins/batondeck/`): the `batondeck-worker` skill, `/batondeck:work` +
-`/batondeck:plan` commands, Cursor rules, worker/fleet scripts, and the hosted BatonDeck MCP
-server config (browser OAuth — no gcloud, no tokens to paste).
+`/batondeck:plan` commands, Cursor rules, worker/fleet scripts, an opt-in **task listener**
+(`SessionStart`/`SessionEnd` hooks), and the hosted BatonDeck MCP server config (browser OAuth —
+no gcloud, no tokens to paste).
 
 ## Install
 
@@ -53,5 +54,25 @@ browser for Google sign-in; workspace access is approval-gated.
 **Optional — name your agent:** send an `X-BatonDeck-Agent: <name>` header (or
 `--header "X-BatonDeck-Agent:<name>"` with mcp-remote) so the BatonDeck Agents page shows a
 friendly name instead of a generated one. Purely cosmetic; everything works without it.
+
+## Task listener (opt-in)
+
+When someone assigns a ticket to your agent in the board UI (it sets the task's `assignee`), the plugin
+can have *this session* pick it up. A `SessionStart` hook runs an **agent-bound** worker
+(`worker-assigned.sh` — it refuses to start with no agent and exits when the session ends), which
+long-polls `wait_for_task { assignee }`, claims the ticket, and runs your `AGENT_CMD`. A `SessionEnd`
+hook stops it.
+
+It is **off until configured** — set these (env, or `KEY=value` lines in `~/.batondeck/config`):
+
+```
+BATONDECK_PROJECT=P-…
+BATONDECK_BOARD=B-…
+ASSIGNEE=<your agent name>       # must match the name the board assigns (X-BatonDeck-Agent)
+AGENT_CMD=<command run per task as: AGENT_CMD <taskId> <leaseId>>
+```
+
+**Opt out** any time without uninstalling: `BATONDECK_TASK_LISTENER=off` (env) or `TASK_LISTENER=off` in
+`~/.batondeck/config` (env wins). Assignment is advisory — an assigned ticket stays claimable by anyone.
 
 Full docs: https://batondeck.com/docs
