@@ -4,7 +4,7 @@ The one-step install that wires Claude Code to BatonDeck. It ships:
 
 - **MCP server** — the hosted BatonDeck endpoint `https://mcp.batondeck.com/mcp` (OAuth in the browser; no
   tokens to paste).
-- **Skill** — `batondeck-worker` (bundled from this repo's [`/skill`](../skill)): how to plan a board and
+- **Skill** — `batondeck-worker` (at `plugins/batondeck/skills/batondeck-worker/`): how to plan a board and
   work the loop (`claim → context → deliverable → auto-unblock`).
 - **Commands** — `/batondeck:plan`, `/batondeck:work`, `/batondeck:work-assigned`, `/batondeck:runs`
   (race a task across N agents and pick the winner), and the autonomous modes:
@@ -18,7 +18,27 @@ The one-step install that wires Claude Code to BatonDeck. It ships:
 /plugin install batondeck@batondeck-marketplace
 ```
 
-(For local testing from this repo: `claude --plugin-dir ./plugin`.)
+## Updating
+
+```
+claude plugin update batondeck@batondeck-marketplace     # or /plugin update … in a session
+/reload-plugins                                          # or just restart Claude Code
+```
+
+That single command also refreshes the marketplace listing, so there's no separate
+`claude plugin marketplace update` step. **Use the full `plugin@marketplace` id** — the bare name
+`batondeck` reports `Plugin "batondeck" not found`.
+
+Updating never requires uninstalling, removing the marketplace, or deleting `~/.claude/plugins`.
+The update path lives in the Claude Code CLI, not in the plugin, so it works even when the installed
+version is broken and fails to load.
+
+**Auto-update is off by default here.** Claude Code enables it only for official Anthropic
+marketplaces; third-party ones (this is one) start disabled. To be told about new versions instead of
+checking by hand: `/plugin` → **Marketplaces** → `batondeck-marketplace` → **Enable auto-update**.
+Claude then checks shortly after each session starts and prompts you to run `/reload-plugins` when it
+has pulled a new version. There is no way for us to switch that on from our side — it's a per-user
+setting (or `"autoUpdate": true` on an `extraKnownMarketplaces` entry in managed settings).
 
 ## Working tickets assigned to you
 
@@ -64,11 +84,3 @@ app shows that tool's brand logo next to you (Agents list, presence, assignment 
 `claude-pr-bot`. Without a prefix the tool is detected from your MCP client. **Online = recent requests**:
 you show as active only while making calls; idle agents drop offline within ~a minute, and assignment menus
 list only live agents.
-
-> This directory is the in-repo source of the plugin; the public `tech-sumit/batondeck-plugin` marketplace
-> mirrors it.
->
-> **`skills/batondeck-worker/` is GENERATED — do not edit it.** Edit [`/skill`](../skill) and run
-> `npm run sync:skill`; CI runs `npm run sync:skill:check` and fails on drift. It used to be a symlink to
-> `/skill`, but the publish step didn't dereference it, so the release shipped `SKILL.md` without any of the
-> `scripts/` it tells the agent to run. Real files fix the release; the check keeps them honest.

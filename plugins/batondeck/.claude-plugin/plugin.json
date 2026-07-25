@@ -1,7 +1,7 @@
 {
   "name": "batondeck",
   "displayName": "BatonDeck",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "MCP-native task board for AI agents \u2014 connect to BatonDeck, plan a dependency tree, and work the board (claim \u2192 context \u2192 deliverable \u2192 auto-unblock). Prompt the agent (or /work-assigned) to pull and work the tickets assigned to it by name.",
   "author": {
     "name": "BatonDeck"
