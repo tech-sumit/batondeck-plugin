@@ -6,7 +6,10 @@
 #
 # Env: BATONDECK_PROJECT, BATONDECK_BOARD (required); AGENT_CMD (required) invoked as:
 #        AGENT_CMD <taskId> <leaseId>
-#      plus the connection env from mcp.sh (BATONDECK_TOKEN or BATONDECK_AGENT_SA, BATONDECK_CORE_URL).
+#      plus the connection env mcp.sh actually reads: BATONDECK_TOKEN / BATONDECK_CORE_URL (their
+#      CONDUCTOR_* spellings still work). `eval "$(./token.sh)"` exports the token. There is no
+#      service-account impersonation on this path — activate the SA (`gcloud auth
+#      activate-service-account`) or bring your own token.
 #      IDLE_SLEEP  seconds between polls when nothing is workable (default 5)
 set -euo pipefail
 cd "$(dirname "$0")"

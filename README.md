@@ -1,91 +1,74 @@
-<img src="icon-256.png" alt="BatonDeck" width="96" align="right"/>
+# BatonDeck plugin (Claude Code)
 
-# batondeck-plugin
+The one-step install that wires Claude Code to BatonDeck. It ships:
 
-The installable agent toolkit for [BatonDeck](https://github.com/tech-sumit/batondeck) — an
-MCP-native Kanban board where AI agents and humans share the work. This plugin gives any
-MCP-capable coding agent the BatonDeck server connection plus the skills, commands, and scripts
-to plan and drain boards autonomously.
-
-**What's inside** (`plugins/batondeck/`): the `batondeck-worker` skill, `/batondeck:work` +
-`/batondeck:plan` commands, Cursor rules, worker/fleet scripts, an opt-in **task listener**
-(`SessionStart`/`SessionEnd` hooks), and the hosted BatonDeck MCP server config (browser OAuth —
-no gcloud, no tokens to paste).
+- **MCP server** — the hosted BatonDeck endpoint `https://mcp.batondeck.com/mcp` (OAuth in the browser; no
+  tokens to paste).
+- **Skill** — `batondeck-worker` (bundled from this repo's [`/skill`](../skill)): how to plan a board and
+  work the loop (`claim → context → deliverable → auto-unblock`).
+- **Commands** — `/batondeck:plan`, `/batondeck:work`, `/batondeck:work-assigned`, `/batondeck:runs`
+  (race a task across N agents and pick the winner), and the autonomous modes:
+  `/batondeck:worker`, `/batondeck:master`, `/batondeck:off`.
+- **Hooks** — a session-scoped **Stop gate** that keeps worker/master mode sessions on shift (see below).
 
 ## Install
 
-### Claude Code
 ```
 /plugin marketplace add tech-sumit/batondeck-plugin
 /plugin install batondeck@batondeck-marketplace
 ```
 
-### Cursor
-Cursor reads the same plugin layout via `.cursor-plugin/` — add this repo as a marketplace in
-Cursor's plugin settings, or just add the MCP server directly to `~/.cursor/mcp.json`:
-```json
-{ "mcpServers": { "batondeck": { "url": "https://mcp.batondeck.com/mcp" } } }
-```
+(For local testing from this repo: `claude --plugin-dir ./plugin`.)
 
-### Claude Desktop (`claude_desktop_config.json`)
-```json
-{
-  "mcpServers": {
-    "batondeck": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.batondeck.com/mcp"]
-    }
-  }
-}
-```
+## Working tickets assigned to you
 
-### Codex (`~/.codex/config.toml`)
-```toml
-[mcp_servers.batondeck]
-command = "npx"
-args = ["-y", "mcp-remote", "https://mcp.batondeck.com/mcp"]
-```
+When a human (or another agent) assigns a ticket to your agent in the board UI, that sets the task's
+`assignee` to your agent name. BatonDeck is **pull-based** — nothing is pushed to you and no background
+worker runs. To work your inbox, **prompt the agent** (or run **`/batondeck:work-assigned <your-name>`**):
+it loops `next_task { assignee }` → `claim_task` → `get_task_context` → do the work → `complete_task`
+until no assigned READY tickets remain. A **handoff note** on a ticket is treated as additional
+instructions; a ticket the agent can't process is reported in the terminal and recorded on the ticket with
+`add_context_item`.
 
-### Gemini CLI (`~/.gemini/settings.json`)
-```json
-{ "mcpServers": { "batondeck": { "httpUrl": "https://mcp.batondeck.com/mcp" } } }
-```
-or run `gemini mcp add --transport http batondeck https://mcp.batondeck.com/mcp`.
+Want concurrency? Run several agents/sessions and prompt each — every agent claims independently (the claim
+is the mutex), and the board's dependency tree gates what's workable in parallel vs. in sequence.
 
-### Any other MCP client
-Streamable HTTP endpoint: `https://mcp.batondeck.com/mcp` — OAuth 2.1 with
-full discovery (RFC 8414/9728), dynamic client registration, PKCE. First connection opens a
-browser for Google sign-in; workspace access is approval-gated.
+## Autonomous modes: worker & master
 
-**Optional — name your agent:** send an `X-BatonDeck-Agent: <name>` header (or
-`--header "X-BatonDeck-Agent:<name>"` with mcp-remote) so the BatonDeck Agents page shows a
-friendly name instead of a generated one. Purely cosmetic; everything works without it.
+For a standing autonomous setup, put sessions **on shift** instead of prompting them per batch. Both modes
+run inside the existing chat session — no extra processes are spawned, and **idle costs zero tokens**: the
+skill's `scripts/watch.sh` runs as a *background* task (worker: `wait_for_task` long-poll; master:
+`wait_for_updates` event long-poll — ~0 Firestore reads while parked), the session ends its turn, and the
+harness wakes it only when there is work. The plugin's **Stop hook** permits idling while a watch is alive
+and steers the session back into its loop when one isn't. Workers honor each ticket's `modelHint` by
+dispatching the work to a subagent on the hinted model/effort (cheap models for mechanical tickets, strong
+ones for deep work) — which also keeps the dispatcher session's context flat across a long shift.
 
-**Tool logo.** Prefix that name with your tool — `claude-…`, `cursor-…`, `gemini-…`,
-`openai-`/`chatgpt-`/`codex-…`, `mcp-…` — and the web app shows that tool's brand logo next to you
-(Agents list, presence, assignment menus); e.g. `claude-pr-bot`. Without a prefix the tool is detected
-from your MCP client. **Online = recent requests:** you appear active only while making calls — the task
-listener's `wait_for_task` long-poll keeps you online, idle agents drop offline within ~a minute, and
-assignment menus list only live agents.
+- **`/batondeck:worker [name/project/board]`** — the doer. Loops: wait for an assignment (or any claimable
+  task) → claim → work per the skill → complete → wait again. Workers **accept and do** work only.
+- **`/batondeck:master <goal>`** — the manager. Plans the goal onto the board as a dependency tree, assigns,
+  then supervises: waits for board events, judges REVIEW deliverables (approve → DONE, or request changes
+  via `add_follow_up { reopen: true }`), unblocks/reassigns/requeues, and may claim a ticket itself when
+  that's fastest. Masters can **put, accept, and do** work.
+- **`/batondeck:off`** — go off shift: disarm the gate, release/hand off any held lease, print a shift report.
 
-## Task listener (opt-in)
+Run any number of workers and masters concurrently (different machines/CLIs included) — claims/leases and
+versioned mutations are the coordination; the board is the shared brain. A crashed session can't stay
+armed: the SessionEnd hook clears its mode flag, and stale leases are reaped by the core on the next poll.
 
-When someone assigns a ticket to your agent in the board UI (it sets the task's `assignee`), the plugin
-can have *this session* pick it up. A `SessionStart` hook runs an **agent-bound** worker
-(`worker-assigned.sh` — it refuses to start with no agent and exits when the session ends), which
-long-polls `wait_for_task { assignee }`, claims the ticket, and runs your `AGENT_CMD`. A `SessionEnd`
-hook stops it.
+## Name + logo
 
-It is **off until configured** — set these (env, or `KEY=value` lines in `~/.batondeck/config`):
+Present an agent name via the `x-batondeck-agent` header (it's what humans see and assign to). Prefix it
+with your tool — `claude-…`, `cursor-…`, `gemini-…`, `openai-`/`chatgpt-`/`codex-…`, `mcp-…` — and the web
+app shows that tool's brand logo next to you (Agents list, presence, assignment menus); e.g.
+`claude-pr-bot`. Without a prefix the tool is detected from your MCP client. **Online = recent requests**:
+you show as active only while making calls; idle agents drop offline within ~a minute, and assignment menus
+list only live agents.
 
-```
-BATONDECK_PROJECT=P-…
-BATONDECK_BOARD=B-…
-ASSIGNEE=<your agent name>       # must match the name the board assigns (X-BatonDeck-Agent)
-AGENT_CMD=<command run per task as: AGENT_CMD <taskId> <leaseId>>
-```
-
-**Opt out** any time without uninstalling: `BATONDECK_TASK_LISTENER=off` (env) or `TASK_LISTENER=off` in
-`~/.batondeck/config` (env wins). Assignment is advisory — an assigned ticket stays claimable by anyone.
-
-Full docs: https://batondeck.com/docs
+> This directory is the in-repo source of the plugin; the public `tech-sumit/batondeck-plugin` marketplace
+> mirrors it.
+>
+> **`skills/batondeck-worker/` is GENERATED — do not edit it.** Edit [`/skill`](../skill) and run
+> `npm run sync:skill`; CI runs `npm run sync:skill:check` and fails on drift. It used to be a symlink to
+> `/skill`, but the publish step didn't dereference it, so the release shipped `SKILL.md` without any of the
+> `scripts/` it tells the agent to run. Real files fix the release; the check keeps them honest.

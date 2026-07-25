@@ -1,13 +1,20 @@
 {
   "name": "batondeck-marketplace",
   "owner": {
-    "name": "tech-sumit"
+    "name": "BatonDeck",
+    "url": "https://batondeck.com"
   },
+  "description": "BatonDeck \u2014 the MCP-native task board plugin.",
+  "version": "0.1.0",
   "plugins": [
     {
       "name": "batondeck",
       "source": "./plugins/batondeck",
-      "description": "Work a BatonDeck Kanban board as an autonomous agent over MCP: claim tasks, carry context/memory/dependencies, run worker fleets, and optionally listen for tickets the board assigns to you. Bundles the batondeck-worker skill, commands, Cursor rules, an opt-in task listener, and the BatonDeck MCP server (OAuth, no gcloud)."
+      "description": "Connect to BatonDeck, work the board, and go on shift: worker mode waits for assignments and works them; master mode plans, assigns, and supervises until the goal ships.",
+      "version": "1.2.0",
+      "author": {
+        "name": "BatonDeck"
+      }
     }
   ]
 }

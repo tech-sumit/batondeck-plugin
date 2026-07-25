@@ -1,23 +1,45 @@
 {
+  "description": "BatonDeck: assigned-task listener (SessionStart/End) + session-id export, and the stop gate that keeps an armed worker/master loop on shift. NOTE: this file is auto-loaded by convention \u2014 never reference it from plugin.json's `hooks` key; that double-loads it and the plugin fails with 'Duplicate hooks file detected'.",
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/listener-start.sh\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session.sh\" start",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/listener-start.sh\"",
+            "timeout": 5
           }
         ]
       }
     ],
     "SessionEnd": [
       {
-        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/listener-stop.sh\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session.sh\" end",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/listener-stop.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/stop-gate.sh\"",
+            "timeout": 10
           }
         ]
       }

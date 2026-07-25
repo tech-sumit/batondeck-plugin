@@ -21,7 +21,10 @@
 #              worker dies when it exits. Launching from a short-lived Claude Code SessionStart hook? Pass
 #              the *session* PID explicitly — $PPID would be the hook, which exits at once.
 #   WAIT_SECS  long-poll window, clamped to 1..50 (default 20).   WATCH_SECS  agent-liveness poll (default 2).
-#   plus the connection env from mcp.sh (BATONDECK_TOKEN or BATONDECK_AGENT_SA, BATONDECK_CORE_URL).
+#   plus the connection env mcp.sh actually reads: BATONDECK_TOKEN / BATONDECK_CORE_URL (their
+#   CONDUCTOR_* spellings still work). `eval "$(./token.sh)"` exports the token. There is no
+#   service-account impersonation on this path — activate the SA (`gcloud auth
+#   activate-service-account`) or bring your own token.
 #
 # Assignment is advisory — an assigned task is still claimable by anyone, so we claim promptly and wait
 # for the next if we lose the race. (PID reuse is a theoretical risk for very short-lived agents.)
@@ -31,13 +34,18 @@ cd "$(dirname "$0")"
 # ── Opt-out switch ────────────────────────────────────────────────────────────────────────────────
 # The task listener is opt-outable. It does NOT run when disabled via either:
 #   • env:  BATONDECK_TASK_LISTENER=off            (off | 0 | false | no | disabled)
-#   • file: TASK_LISTENER=off  in  ${BATONDECK_CONFIG:-$HOME/.batondeck/config}
-# Unset / any other value = enabled. (A SessionStart hook that auto-launches this should make the same
-# check so it doesn't even spawn — see SKILL.md.) Checked first, so opting out needs no other env.
+#   • file: BATONDECK_TASK_LISTENER=off  or  TASK_LISTENER=off  (either spelling), in
+#           ${BATONDECK_CONFIG:-$HOME/.batondeck/config}
+# Unset / any other value = enabled. listener-start.sh (the SessionStart hook that auto-launches this)
+# reads the SAME env var and the SAME pair of file keys, so it doesn't even spawn. Checked first, so
+# opting out needs no other env.
 listener_pref="${BATONDECK_TASK_LISTENER:-}"
 if [ -z "$listener_pref" ]; then
   _cfg="${BATONDECK_CONFIG:-$HOME/.batondeck/config}"
-  [ -f "$_cfg" ] && listener_pref="$(sed -n 's/^[[:space:]]*TASK_LISTENER[[:space:]]*=//p' "$_cfg" | tail -n1)"
+  if [ -f "$_cfg" ]; then
+    listener_pref="$(sed -n 's/^[[:space:]]*BATONDECK_TASK_LISTENER[[:space:]]*=//p' "$_cfg" | tail -n1)"
+    [ -n "$listener_pref" ] || listener_pref="$(sed -n 's/^[[:space:]]*TASK_LISTENER[[:space:]]*=//p' "$_cfg" | tail -n1)"
+  fi
 fi
 listener_pref="$(printf '%s' "$listener_pref" | tr -d $'"\'' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
 case "$listener_pref" in

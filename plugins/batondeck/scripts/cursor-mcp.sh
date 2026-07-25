@@ -4,13 +4,18 @@
 # BatonDeck core's Streamable HTTP /mcp endpoint via `mcp-remote`. The token lasts ~1h — restart the
 # MCP server in Cursor (Settings → MCP → reload) to refresh it.
 #
+# This is the gcloud/headless variant. It points at the IAM-protected CORE, not the OAuth gateway
+# (mcp.batondeck.com): the gateway verifies bearers against its OWN JWKS (issuer/audience = the gateway,
+# kind "access") and rejects a Google-issued ID token on every request. For browser OAuth use the plugin's
+# bundled MCP server (plugin/.mcp.json → https://mcp.batondeck.com/mcp) instead of this script.
+#
 # Env (same as the other scripts):
-#   BATONDECK_CORE_URL      core base URL (default: hosted reference instance)
+#   BATONDECK_CORE_URL      core base URL (default: the hosted reference core, IAM-protected)
 #   BATONDECK_TOKEN         a Google ID token (audience = core URL); else minted below
 #   BATONDECK_AGENT_SA      mint by impersonating this service account (else the active gcloud principal)
 #   BATONDECK_ON_BEHALF_OF  optional on-behalf-of identity (only when authing as a trusted gateway SA)
 set -euo pipefail
-CORE="${BATONDECK_CORE_URL:-https://mcp.batondeck.com}"
+CORE="${BATONDECK_CORE_URL:-https://conductor-core-hn5syhhsja-el.a.run.app}"
 
 if [ -n "${BATONDECK_TOKEN:-}" ]; then
   TOKEN="${BATONDECK_TOKEN}"

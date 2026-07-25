@@ -1,7 +1,7 @@
 # BatonDeck tool reference
 
 Connect over Streamable HTTP at the core's `/mcp` endpoint
-(`https://mcp.batondeck.com/mcp` for the hosted instance) with an
+(`https://conductor-core-hn5syhhsja-el.a.run.app/mcp` for the hosted instance) with an
 `Authorization: Bearer <Google ID token>` header whose audience is the core URL. The core is public
 and self-enforces auth (OAuth 2.0 Protected Resource Metadata at
 `/.well-known/oauth-protected-resource`, RFC 9728; `401` carries a `WWW-Authenticate` challenge). See
@@ -22,28 +22,57 @@ RATE_LIMITED, INTERNAL.
 - `list_boards { projectId }` / `get_board { projectId, boardId }`
 
 ## Tasks
-- `create_task { projectId, boardId, title, ... }`
+- `create_task { projectId, boardId, title, modelHint?, ... }` — `modelHint { model, effort?, rationale? }` is the creator's complexity estimate (model id or size class + `low|medium|high|xhigh` effort) the worker must honor; advisory, schema-validated only. Lands the task in the board's **first column (BACKLOG)**. BACKLOG tasks are **NOT claimable** and are **invisible to `next_task`/`claim_next`**, and nothing auto-promotes them (auto-unblock only fires on `BLOCKED`). After creating (and wiring dependencies), **`move_task { toStatus: "READY" }`** — promote *every* task, not just leaves; a READY task with a non-empty `blockedBy` is simply excluded from selection until auto-unblock empties it.
 - `get_task { projectId, taskId }` / `list_tasks { projectId, boardId, status?, assignee?, label?, unblockedOnly?, limit?, cursor? }`
-- `update_task { projectId, taskId, version, patch }`
-- `move_task { projectId, taskId, version, toColumnId? | toStatus?, order? }`
+- `update_task { projectId, taskId, version, patch }` — `patch.modelHint` sets/replaces the hint; `modelHint: null` clears it.
+- `move_task { projectId, taskId, version, toColumnId? | toStatus?, order? }` — `BACKLOG → READY` is the promotion that makes a created task workable.
 - `add_context_item { projectId, taskId, kind, body }` / `set_summary { projectId, taskId, version, summary }`
+- `add_comment { projectId, taskId, body, parentCommentId?, idempotencyKey? }` → `{ comment }` — threaded markdown comment; `@mentions` of project members are resolved + recorded (notifies them). `parentCommentId` replies to another comment. / `list_comments { projectId, taskId, limit?, cursor? }` → `{ comments, nextCursor? }` (oldest-first)
+- `list_notifications { limit?, cursor? }` → `{ notifications, unread, nextCursor? }` — YOUR in-app notifications (newest-first, cross-project; v1 = @mentions). / `mark_notifications_read { ids? | all? }` → `{ updated }`
 
 ## Lifecycle (leases)
 - `claim_task { projectId, taskId, leaseSeconds? }` → `{ leaseId, task }`
+- `claim_next { projectId, boardId, capabilities?, assignee?, useProfile?, leaseSeconds?, shard?:{index,count}, maxConcurrency? }` → `{ leaseId, task, attempts }` — **select AND claim** the best eligible task in one server-side op; falls through to the next candidate on a collision (concurrent workers never pick-then-collide), returns the first won or `{task:null}` when drained. `shard` stripes the frontier into disjoint lanes; `maxConcurrency` caps the caller's live claims (→ `RATE_LIMITED`); `useProfile:true` matches against your registered profile and defaults the ceiling to its maxConcurrency. Prefer over `next_task`+`claim_task` in wide fleets.
 - `heartbeat_task { projectId, taskId, leaseId }` / `release_task { ... leaseId }`
 - `complete_task { ... leaseId, deliverable? }` — pass `deliverable` (result/summary or link) so unblocked tasks can build on it via `includeUpstream`; it's stored on the ticket / `block_task { ... leaseId, reason, blockedBy? }`
+- `fail_task { projectId, taskId, leaseId, reason, retryable? }` → `{ task }` — report a CLAIMED task failed (T-4): drops the lease, increments `claimAttempts`, and either schedules a backed-off retry (→ READY, selectable only after the exponential backoff) or quarantines it (→ `DEAD_LETTER`) when `retryable:false` or past the project poison threshold. Use this instead of abandoning a lease so the failure is counted + backed off fleet-wide.
+- `requeue_task { projectId, taskId }` → `{ task }` — un-quarantine a `DEAD_LETTER` task (→ READY, `claimAttempts`/backoff reset). Writer role; INVALID_TRANSITION on a non-quarantined task.
+- `reap_stale_leases { projectId, boardId }` → `{ reaped }` — force the dead-lease sweep (flip expired-lease IN_PROGRESS tasks → READY-with-backoff or DEAD_LETTER). Happens automatically on next_task/wait_for_task/claim_next/get_board (no background sweeper); call this to force it.
 - `handoff_task { ... leaseId, toAgent, memoryNote }`
-- `next_task { projectId, boardId, capabilities?, assignee? }` — highest-priority claimable READY task (or null). Pass `assignee` to pull only tickets the board routed to that agent name.
+- `next_task { projectId, boardId, capabilities?, assignee?, strategy?, explain?, useProfile? }` — highest-priority claimable READY task (or null). Pass `assignee` to pull only tickets the board routed to that agent name. `strategy:"score"` (or `explain:true`) ranks by a cost-aware scorer (priority · deadline · bottleneck fan-out · capability fit · bounded aging) instead of FIFO-priority; omit for the legacy order. `useProfile:true` matches against your registered capability profile (exact · alias · tag) and breaks near-ties by your reliability. `explain:true` adds the per-factor breakdown + runner-up (+ tier/reliability under useProfile).
+- `rank_tasks { projectId, boardId, capabilities?, assignee?, useProfile?, limit? }` → `{ ranked: {task, score, reason, agedOut, factors, tier?, reliability?}[] }` — read-only explainable ranking of the claimable pool (zero extra reads); see *why* work is ordered. `useProfile:true` ranks against your capability profile.
 - `wait_for_task { projectId, boardId, capabilities?, assignee?, timeoutSec? }` — long-poll `next_task`: blocks until a claimable task appears (default 25s, max 50s; `{task:null}` on timeout), re-call in a loop. With `assignee`, it's your **board-assignment inbox** — wakes only on tickets assigned to that name. Then `claim_task` the result.
+- `wait_for_updates { projectId, boardId, sinceCursor?, timeoutSec?, limit? }` → `{ events, cursor }` — long-poll the board **event feed** (the supervisor-side companion to `wait_for_task`, and what the gateway drives the human live-UI push from; ~0 reads while idle). First call WITHOUT `sinceCursor` returns the current `cursor` immediately; then re-call with it in a loop — blocks until events after the cursor land (task transitions, follow-ups, …; **oldest-first**, a burst larger than `limit` drains over successive calls) or timeout (`{events:[]}`, cursor unchanged). The `cursor` is an opaque `ts|id` token — same-millisecond siblings are ordered deterministically so none are dropped. Use instead of polling `list_tasks` to watch a board.
+
+## Agent capability registry (T-3)
+- `register_agent_profile { projectId, capabilities, tags?, maxConcurrency?, costClass? }` → `{ profile }` — register what YOU (this agent) can do, server-side, so selection stops relying on a capability list you re-declare every poll. Keyed by your agent name. `tags` are broad coverage areas (a tag covers a required capability as a weaker, penalized match); `maxConcurrency` becomes the default `claim_next` ceiling. Then pass `useProfile:true` to next_task/claim_next/rank_tasks. Re-registering overwrites in place.
+- `get_skill_stats { projectId, agentKey? }` → `{ profile, stats }` — an agent's profile + per-(capability) outcome stats: completions, blocks, a regularized `reliability` (low-sample floor → newcomers read neutral, never 0), and a mean handle time. Omit `agentKey` for your own; pass one to inspect another. Stats accrue automatically from `complete_task`/`block_task` on tasks that declare `requiredCapabilities`.
+- Admins set capability synonyms via `update_settings { projectId, capabilityAliases: { "py-test": "pytest" } }` so aliases match at full (synonym) tier.
 
 ## Context / graph / media
-- `get_task_context { projectId, taskId, include?, includeUpstream?, limit?, cursor? }` → also returns this task's `deliverable`; with `includeUpstream:true`, an `upstream[]` of the deliverables (+title/status/summary) of the tasks it depended on — build on those outputs
+- `get_task_context { projectId, taskId, include?, includeUpstream?, limit?, cursor? }` → also returns this task's `deliverable` and `modelHint`, plus `openFollowUps[]` (bounded) + `openFollowUpCount` — outstanding directives for the holder, **act on each then `ack_follow_up`**; with `includeUpstream:true`, an `upstream[]` of the deliverables (+title/status/summary) of the tasks it depended on — set it on any task unblocked by others and build on those outputs. Also returns **`workflow { status, allowedMoves, lanes }`** — the board's lane structure and the exact statuses `move_task` will accept next from this task's current status, so you can pick a legal move without provoking an `INVALID_TRANSITION` (and if you do hit one, its message names the allowed moves + the legal path anyway).
 - `write_memory { projectId, taskId, scope, key, value? | largeArtifact?, ttl? }` / `read_memory { projectId, taskId, scope?, key? }`
 - `add_dependency { projectId, fromTaskId, toTaskId, type? }` / `remove_dependency { projectId, edgeId }`
 - `add_subtask { projectId, parentTaskId, title }` / `list_subtasks { projectId, parentTaskId }`
 - `attach_file { projectId, taskId, fileName, mimeType, kind, bytes }` → signed PUT URL
 - `list_attachments { projectId, taskId }` → manifest + signed GET URLs
 - `search_tasks { projectId, query, boardId?, k? }`
+
+## Follow-ups (directed, actionable instructions to the holder)
+A **follow-up** is a directive aimed at the task's current holder (lease owner/agent, else the assignee) — distinct from `add_comment` (open discussion) and `handoff_task` (reassignment). It notifies the target, surfaces in `get_task_context.openFollowUps`, and can optionally **reopen** a REVIEW/DONE task (the "request changes" loop).
+- `add_follow_up { projectId, taskId, body, reopen?, idempotencyKey? }` → `{ followUp, task }` — writer role. Records the directive (markdown `body`), notifies the resolved `target`, appends `task.follow_up`. With `reopen:true` and task ∈ {REVIEW, DONE}, transitions it back to IN_PROGRESS (holder/assignee present) or READY, bumps `version`, appends `task.reopened`; a reopen requested from any other status is a recorded no-op.
+- `ack_follow_up { projectId, taskId, followUpId }` → `{ followUp }` — the holder marks a directive acknowledged (`status:'acked'`), appends `followup.acked`. Ack each open directive **after** acting on it.
+- `list_follow_ups { projectId, taskId, openOnly?, limit?, cursor? }` → `{ followUps, nextCursor? }` — bounded, chronological; `openOnly:true` for just the outstanding ones.
+
+## Runs (race a task across N agents, pick the winner)
+A **run** is a normal claimable child task linked to its parent by `runOf` (distinct from decomposition subtasks). A lead/orchestrator opens a race for high-stakes/ambiguous work; workers claim/work/complete runs like any task; the lead later **picks** the winning run (its deliverable is promoted onto the parent) and the losers are cancelled. The racing **parent** is non-claimable (`racing:true`) while the race is open. Capped per parent by `maxRunsPerTask`.
+- `start_runs { projectId, taskId, version, count?, agents?, brief? }` → `{ task, runs }` — writer role. Opens a race on a READY/BACKLOG parent (or one IN_PROGRESS held by the caller): sets the parent `racing:true`, then creates `count` (or `agents.length`) run children (each `runOf:taskId`, status READY, copied brief/labels/capabilities, `assignee: agents[k] ?? null`).
+- `open_run { projectId, taskId, agent?, brief? }` → `{ run }` — add one more run to an already-racing parent (let another agent join late).
+- `list_runs { projectId, taskId }` → `{ runs }` — bounded query of this parent's runs; each `{ taskId, status, assignee, leaseHolder, hasDeliverable, deliverable?, version }`. Compare runs here before picking.
+- `pick_run { projectId, taskId, runTaskId, version }` → `{ task }` — writer/admin. The chosen run must be submitted (REVIEW/DONE with a `deliverable`). Promotes the run's deliverable onto the parent, clears `racing`, advances the parent (REVIEW if review enabled, else DONE), cancels every other run (releasing their leases), and auto-unblocks the parent's real dependents if it reached DONE.
+- `cancel_runs { projectId, taskId, version }` → `{ task }` — abandon the race: parent back to READY (`racing:false`), all runs → CANCELLED.
+
+Reused unchanged for the actual work inside a run: `claim_task`/`claim_next`, `heartbeat_task`, `release_task`, `complete_task` (sets the run's `deliverable`), `get_task_context`.
 
 ## Resources (subscribe for live updates)
 - `conductor://{projectId}/board/{boardId}` · `.../task/{taskId}` · `.../task/{taskId}/context` · `.../board/{boardId}/feed`

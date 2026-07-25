@@ -1,0 +1,66 @@
+---
+description: Worker mode — go on shift; wait for BatonDeck assignments (zero-token idle) and work them until /batondeck:off, switching model/effort per ticket.
+---
+
+Enter **worker mode**: a persistent on-shift loop — wait for work, claim it, do it, complete it, wait
+again. Workers **accept and do** work; they don't create or assign it (that's `/batondeck:master`).
+Any number of workers and masters run concurrently — claims/leases are the mutex, the dependency
+tree gates what's parallel. Completing a ticket auto-unblocks its dependants, whose assignees'
+parked waits wake instantly — that chain is the whole autonomous pipeline.
+
+Inputs: $ARGUMENTS — optionally your agent name (to serve only your **assignee inbox**, e.g. a role
+like `claude-qa` or `claude-backend`), the project/board, and capabilities. Missing project/board →
+discover with `list_projects` → `list_boards`.
+
+Setup (once):
+
+1. Resolve project, board, and your agent name (the `x-batondeck-agent` value; export
+   `BATONDECK_AGENT` for the shell scripts). Optionally `register_agent_profile` so selection can use
+   `useProfile:true`.
+2. **Arm the mode:** run `"${CLAUDE_PLUGIN_ROOT}/scripts/mode.sh" worker "P-… B-… agent=<name>"`.
+
+The loop (repeat until taken off shift):
+
+0. **Sweep your inbox BEFORE waiting.** `next_task { assignee }` covers READY only — and so do
+   `claim_next` and `watch.sh work`. A ticket assigned to you sitting in **`REVIEW`** (rework, or yours
+   to judge), `BLOCKED`, or `DEAD_LETTER` is invisible to all of them, so a null `next_task` means
+   "nothing READY", **not** "no work". Check each explicitly before you park:
+   `list_tasks { projectId, boardId, assignee, status: "REVIEW" }` (then `BLOCKED`, `DEAD_LETTER`).
+   Work anything found — `REVIEW`: act on `openFollowUps` + `ack_follow_up`, or judge it to `DONE` /
+   send back with `add_follow_up { reopen: true }`. Re-sweep after every ticket; only a fully empty
+   sweep sends you to step 1.
+1. **Wait in the background — idle costs nothing.** Start
+   `"${CLAUDE_PLUGIN_ROOT}/skills/batondeck-worker/scripts/watch.sh" work '{"projectId":"P-…","boardId":"B-…","assignee":"<name>"}'`
+   as a **background Bash task** (`run_in_background: true`), then **end your turn**. The harness
+   wakes you when it exits with a task; the Stop gate permits idling while the watch is alive. Drop
+   `assignee` to serve the whole claimable pool; add `capabilities`/`useProfile` to match your
+   profile. Exit 3 = deadline with no work — just restart the watch and end your turn again.
+2. **Claim:** `claim_task { projectId, taskId }` → save the `leaseId` (lost the race /
+   `CONFLICT_LOCKED` → back to 1).
+3. **Honor the ticket's `modelHint` — dispatch, don't grind.** Read `task.modelHint`
+   (`{ model, effort }`, the planner's complexity estimate). Run the ticket in a **subagent** with the
+   matching model — haiku-class hints → `haiku`, sonnet-class → `sonnet`, opus/large → `opus`
+   (no hint → inherit) — and carry `effort` into the subagent's prompt ("effort: low — be quick and
+   mechanical" / "effort: high|xhigh — reason deeply, verify"). Give the subagent the full brief:
+   task id, lease, and the instruction to work it per the batondeck-worker skill —
+   `get_task_context { includeUpstream: true }` first (**build on the `upstream` deliverables** —
+   that's how the previous agent's output reaches you), clear + ack `openFollowUps`, do the work,
+   record as it goes (`add_context_item`, `write_memory`, `set_summary`), `heartbeat_task` on long
+   work, then `complete_task { leaseId, deliverable }` (always a deliverable — it's the next
+   ticket's input). Dispatching also keeps THIS session's context small over a long shift. Trivial
+   tickets matching your own model can be worked inline.
+4. Not processable → `block_task` / `handoff_task` / `fail_task` honestly, never silently drop.
+5. Print one terminal line per finished ticket (id, title, outcome), re-sweep (step 0), restart the
+   background watch, end your turn.
+
+**An empty board is a reason to wait, never a reason to stop.** Do not report "there's no outstanding
+work anywhere" and hand the turn back — that ends the shift the user asked you to hold. Say "inbox empty
+— waiting", restart the watch, end the turn. Only `/batondeck:off` (or repeated auth/network failure)
+takes you off shift.
+
+Rules: a reopened task is a correction loop — re-claim, address the new follow-ups, ack,
+re-complete. If the loop fails repeatedly on infrastructure (auth expiry, network), run
+`"${CLAUDE_PLUGIN_ROOT}/scripts/mode.sh" off`, report the error, and stop.
+
+Follow the batondeck-worker skill for the full rules. Agent / project / board / capabilities:
+$ARGUMENTS

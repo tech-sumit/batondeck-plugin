@@ -1,10 +1,21 @@
 {
   "name": "batondeck",
-  "description": "Autonomous agent toolkit for BatonDeck (MCP-native Kanban): plan dependency trees, claim + work tasks with full context, heartbeat leases, hand off, and drain boards with worker fleets. Includes the batondeck-worker skill, /batondeck:work and /batondeck:plan commands, Cursor rules, helper scripts, an opt-in agent-bound task listener (picks up tickets the board assigns to you), and the hosted BatonDeck MCP server (browser OAuth, no gcloud).",
-  "version": "1.1.0",
+  "displayName": "BatonDeck",
+  "version": "1.2.0",
+  "description": "MCP-native task board for AI agents \u2014 connect to BatonDeck, plan a dependency tree, and work the board (claim \u2192 context \u2192 deliverable \u2192 auto-unblock). Prompt the agent (or /work-assigned) to pull and work the tickets assigned to it by name.",
   "author": {
-    "name": "tech-sumit"
+    "name": "BatonDeck"
   },
-  "hooks": "./hooks/hooks.json",
-  "icon": null
+  "homepage": "https://batondeck.com",
+  "repository": "https://github.com/tech-sumit/batondeck-plugin",
+  "license": "SEE LICENSE",
+  "keywords": [
+    "mcp",
+    "tasks",
+    "kanban",
+    "orchestration",
+    "agents",
+    "batondeck"
+  ],
+  "icon": "./icon-256.png"
 }
