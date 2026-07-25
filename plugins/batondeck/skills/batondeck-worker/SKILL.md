@@ -262,6 +262,42 @@ waiting (below) — an empty board is a reason to wait, never a reason to end th
 This is the loop you run per task — working directly, or after `next_task` / `/work-assigned` hands you
 one. In a shell, each step is `scripts/mcp.sh <tool> '<json>'`; from your MCP client, call the tool directly.
 
+### The two checklists
+
+Run these. The loop below is the detail; these are what you actually check yourself against — prose you
+read once is not a thing you verify at the end.
+
+**Before you touch anything.** If a line fails, fixing it *is* the first piece of work — do not start.
+
+- [ ] You hold the **lease** (`claim_task` returned a `leaseId`) — "assigned to me" is not a claim.
+- [ ] `get_task_context { includeUpstream: true }` read **in full** — description, `field` items (what),
+      `decision`/`note` items (why), dependencies, attachments, and the **upstream deliverables** you are
+      meant to build on rather than re-derive.
+- [ ] `recall_memory` checked — the board may already know what you are about to work out.
+- [ ] `openFollowUps` acted on and `ack_follow_up`'d.
+- [ ] `modelHint` honoured (switch, or spawn a subagent of that size) — or `add_comment` saying why not.
+- [ ] **Acceptance criteria are concrete enough to verify.** If they are not, populate the ticket first.
+      Never leave a thin task, and never start one.
+- [ ] Not BLOCKED — resolve the blocker chain first; never work a blocked task directly.
+- [ ] You know **which paths this ticket owns** if others are working the same repo
+      (see `references/parallel-delivery.md`).
+
+**Before you complete.** Every line is evidence someone else can re-check — that is the point of it.
+
+- [ ] Each acceptance criterion met, **named individually**. "Done" is not a criterion.
+- [ ] Any guard/check you wrote has been **watched failing** — break the thing it guards, confirm it goes
+      red, paste that failure. A green check you have never seen red proves it ran, not that it works.
+- [ ] **Artifacts bound BEFORE `complete_task`** — `pr` *and* `branch` as separate entries, plus `commit`;
+      with no remote, commit shas + repo-relative `file` paths; screenshots via `attach_file`. This is the
+      step that gets forgotten, and a ticket you cannot click through to is unauditable forever after.
+- [ ] Durable facts written to `project` memory so they outlive this ticket — not left in your context.
+- [ ] `set_summary` current: what's done / what's next / where it stands.
+- [ ] `deliverable` written **for the next agent**, not as a status report — it becomes their
+      `includeUpstream` input.
+- [ ] **What you did NOT verify is stated**, as plainly as what you did. A deliverable is prose; it is
+      only as good as its honesty.
+- [ ] Reviewer named, signed off out loud, lease released — and **you are not the one approving it**.
+
 1. **Claim:** `claim_task { projectId, taskId }` → save the `leaseId` and `version`. On
    `CONFLICT_LOCKED`, someone else holds it — pick another. (Only READY tasks are claimable.)
    Shell: `scripts/mcp.sh claim_task '{"projectId":"P-…","taskId":"T-…"}'`.
