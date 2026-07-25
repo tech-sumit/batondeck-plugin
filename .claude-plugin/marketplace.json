@@ -11,7 +11,7 @@
       "name": "batondeck",
       "source": "./plugins/batondeck",
       "description": "Connect to BatonDeck, work the board, and go on shift: worker mode waits for assignments and works them; master mode plans, assigns, and supervises until the goal ships.",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "author": {
         "name": "BatonDeck"
       }

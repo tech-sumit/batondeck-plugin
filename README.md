@@ -9,7 +9,37 @@ The one-step install that wires Claude Code to BatonDeck. It ships:
 - **Commands** — `/batondeck:plan`, `/batondeck:work`, `/batondeck:work-assigned`, `/batondeck:runs`
   (race a task across N agents and pick the winner), and the autonomous modes:
   `/batondeck:worker`, `/batondeck:master`, `/batondeck:off`.
-- **Hooks** — a session-scoped **Stop gate** that keeps worker/master mode sessions on shift (see below).
+- **Hooks** — three, listed in full below: `SessionStart`, `SessionEnd`, and a session-scoped **Stop
+  gate** that keeps worker/master sessions on shift.
+
+## What the hooks do (read this before installing)
+
+One of these blocks turn-end, so here is the whole surface up front. The claims are checkable — see
+[SECURITY.md](SECURITY.md) for the verification commands and the threat model, and the plugin's
+`hooks/hooks.json` for the complete registration (it is the only hook file in the package).
+
+| Hook | Fires | Does |
+|---|---|---|
+| `SessionStart` | session start | exports `BATONDECK_SESSION_ID` so state can be keyed per session; starts the assigned-task listener **only if** you configured all of `BATONDECK_PROJECT`/`BATONDECK_BOARD`/`ASSIGNEE`/`AGENT_CMD` (unconfigured = does nothing, prints nothing) |
+| `SessionEnd` | session end | deletes this session's mode flag, so a dead session can't stay armed; stops the listener if one was started |
+| `Stop` | the model is about to end its turn | **allows the stop silently unless this session is on shift.** Details below |
+
+**The Stop gate blocks turn-end only when you asked for a shift.** It exits 0 without output unless
+`~/.batondeck/mode-<session_id>` exists, and that file is written only by `/batondeck:worker` or
+`/batondeck:master` in *that same session*. When it does block, it emits a reason that names the
+plugin, the command that armed it and `/batondeck:off` — it grants no permission, approves no tool
+call, and never blocks two turn-ends in a row (`stop_hook_active` circuit breaker). `/batondeck:off`,
+or ending the session, disarms it. Try it before you trust it:
+
+```
+# run from the plugin directory (installed: ~/.claude/plugins/…/plugins/batondeck)
+echo '{"session_id":"nope","stop_hook_active":false}' | bash hooks/stop-gate.sh; echo "exit=$?"
+# → no output, exit=0
+```
+
+**Not registered, therefore impossible for this plugin:** `PreToolUse`, `PostToolUse`,
+`UserPromptSubmit`, `PreCompact`, `SubagentStop`. It cannot see or rewrite your prompts, intercept or
+approve a tool call, skip a permission prompt, or inject anything into a tool result.
 
 ## Install
 

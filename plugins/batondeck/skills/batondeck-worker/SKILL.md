@@ -162,7 +162,11 @@ context*. Before a task is "created", give it as much of this as applies (thin t
   for OCR/thumbnail and searchable.)
 - **customFields** (on `create_task`/`update_task`) — typed metadata, e.g.
   `{ architectureRef, designUrl, component, estimate }`.
-- **memory** (`write_memory`, `shared` scope) — durable facts the whole team should reuse.
+- **memory** (`write_memory`) — `shared` scope for facts this TASK's readers need; `project` scope
+  for a fact the whole team should reuse **after this task is closed** ("the staging deploy token
+  lives in Secret Manager under X"), and `agent_global` for a preference that follows YOU across
+  every project ("this client always wants British spelling"). The last two need no `taskId` and
+  outlive the task; read them back with `recall_memory`.
 
 Rule of thumb: **if a fact is needed to do the task, it lives on the task** — in the description, a
 context `field`, an attachment, or shared memory — never only in your head or a chat.
@@ -270,7 +274,10 @@ one. In a shell, each step is `scripts/mcp.sh <tool> '<json>'`; from your MCP cl
    deliverables** — that's how work chains across tools without re-deriving prior output. Read *all* of
    it and hold it for the whole task: description + `field` items say *what*, `decision`/`note` items say
    *why*, **memory** carries durable facts, **attachments** carry designs/specs. Also `read_memory`
-   (`agent` scope = your private notes, `shared` = team-wide, `task` = this task). Pull and process every
+   (`agent` scope = your private notes, `shared` = team-wide, `task` = this task) — and
+   **`recall_memory { projectId }` for what earlier tasks learned**: durable `project` facts plus your own
+   `agent_global` preferences, which `get_task_context` does NOT carry because they do not belong to this
+   task. Do that before you rediscover something the board already knows. Pull and process every
    populated field before you touch anything. **Then act on any `openFollowUps` (next section) before you
    move on.**
    Shell: `scripts/mcp.sh get_task_context '{"projectId":"P-…","taskId":"T-…","includeUpstream":true}'`.
@@ -278,7 +285,8 @@ one. In a shell, each step is `scripts/mcp.sh <tool> '<json>'`; from your MCP cl
    that size to do the work, *before* you start. If you can't switch, say so in a comment on the task
    (`add_comment`) so the creator knows the hint wasn't applied.
 3. **Do the work, recording as you go:** `add_context_item` (decisions/notes you make),
-   `write_memory` (durable facts), `update_task` / `customFields` (structured results). Leave the task
+   `write_memory` (durable facts — use `scope:'project'` for anything the NEXT task will need, so it
+   is not lost when this one closes), `update_task` / `customFields` (structured results). Leave the task
    at least as well-populated as you found it. **Keep the digest current:** call
    `set_summary { version, summary }` whenever the task's state changes meaningfully (claimed,
    mid-progress, before a handoff) — a tight 1–3 sentence *what's done / what's next / where it stands*.
@@ -288,12 +296,35 @@ one. In a shell, each step is `scripts/mcp.sh <tool> '<json>'`; from your MCP cl
    (default 5 min). A follow-up can land *while you work*, so on each heartbeat re-read
    `get_task_context.openFollowUps` and clear any new directive (act → `ack_follow_up`) the same way you
    handled the ones at claim time.
-5. **Finish:**
-   - Done → `complete_task { leaseId, deliverable }`. **Always pass `deliverable`** — a concise statement
-     of the work product (a result/summary, or a link/path; large files travel as attachments) so the
-     tasks you just unblocked can build on it via their `includeUpstream` context. It's stored on the
-     ticket and attributed to you. (→ REVIEW, or DONE when the board skips review; reaching DONE
-     auto-unblocks dependants.)
+5. **Finish — bind the evidence FIRST, then complete:**
+   - **Record what you produced BEFORE you complete.** A ticket whose work you cannot click through to
+     is not auditable, and this is the step agents forget: six PRs once shipped without a single link
+     reaching a ticket. `add_artifact { projectId, taskId, artifacts:[…] }` takes typed entries —
+     `pr` (the PR/MR/review URL), `branch` (where the work lives), `commit`, `file`, `doc`,
+     `attachment` — **`pr` and `branch` are separate entries on purpose**: one says what was reviewed,
+     the other where it is. Any forge works (GitHub, GitLab, Bitbucket, Gerrit, hg), and a repo with no
+     remote is still auditable via commit shas + repo-relative paths. Screenshots/images go through
+     `attach_file` (signed upload + OCR) — link them or reference the attachment id.
+     Shell: `` bash scripts/artifacts.sh [pr-url] `` prints the exact `artifacts` array for the current
+     checkout (branch, head commit, forge URLs, and the PR if `gh`/`glab` can tell it). It reads only
+     local git/hg — **no BatonDeck auth needed**, so it works under browser OAuth too.
+   - Done → `complete_task { leaseId, deliverable, artifacts? }`. **Always pass `deliverable`** — a concise
+     statement of the work product (a result/summary, or a link/path; large files travel as attachments) so
+     the tasks you just unblocked can build on it via their `includeUpstream` context. It's stored on the
+     ticket and attributed to you. You may pass `artifacts` here instead of a separate `add_artifact` call —
+     they are merged and de-duplicated. **Completing with no artifact returns a `warnings` entry (and on a
+     project set to `enforce`, is REJECTED).** If the ticket genuinely produces none, label it
+     `no-artifact` rather than ignoring the warning. (→ REVIEW, or DONE when the board skips review;
+     reaching DONE auto-unblocks dependants.)
+   - **Hand the review over, out loud.** When the board reviews, the ticket does NOT stay yours: your lease
+     is released, and the reviewer — `complete_task { reviewer }`, else the ticket's reviewer, else the
+     project default — is recorded on the ticket, made its assignee and notified. The response tells you who
+     got it (`handover: { reviewer, status }`). **Print a sign-off line in the terminal** naming them and
+     what to check, e.g. `T-52 → REVIEW · bob@acme.com owns it · check the PR + the enforce-rung tests`.
+     If `handover.reviewer` is `null` nobody owns it — say so, and name a reviewer rather than moving on.
+     **Do NOT move your own ticket REVIEW → DONE.** The identity that did the work is not the one that
+     approves it; a self-approval is flagged, and rejected outright on a project set to
+     `selfApprovalPolicy:"enforce"`. Wait for the reviewer, or hand it to someone who can judge it.
    - Stuck on another task → `block_task { leaseId, reason, blockedBy: [taskId,…] }` — this **records
      the dependency edge**, so chain-navigation and auto-unblock keep working.
    - Passing it on → `summarize_for_handoff` then `handoff_task { leaseId, toAgent, memoryNote }`.
@@ -434,16 +465,21 @@ the same loops prompt-driven.
      deliverable). Dispatching keeps the dispatcher session's context flat across a long shift.
   3. **Re-sweep** — finishing one ticket routinely creates the next (auto-unblock, or your completion
      landing in `REVIEW`). Only when a full sweep is empty do you move on.
-  4. **Then wait — never stop.** Start background `watch.sh work` and end your turn. An empty board
-     means *wait*, not "shift over": say so in one line ("inbox empty — waiting"), restart the watch,
-     end the turn. Only `/batondeck:off` (or repeated infrastructure failure) ends a shift. Exit 3 from
-     the watch is a deadline, not an answer — sweep once more and restart it.
+  4. **Then wait — never stop.** Wait the way your auth allows (see the box above): on the plugin's
+     OAuth path, loop the `wait_for_task` MCP tool; with a real `BATONDECK_TOKEN`/service account,
+     start background `watch.sh work` and end your turn. An empty board means *wait*, not "shift
+     over": say so in one line ("inbox empty — waiting") and resume the wait. Only `/batondeck:off`
+     (or repeated infrastructure failure) ends a shift. A `{task: null}` return (or watch exit 3) is a
+     deadline, not an answer — sweep once more and wait again.
 
   Serve your assignee inbox by passing `assignee` (role agents: `claude-backend`, `claude-qa`, …), or the
   whole pool without it.
 - **Master** (put + accept + do): plan the goal onto the board (see **Plan** / `seed-tasknet.py`) —
-  per ticket set `assignee` (role routing), `modelHint` (complexity), `requiredCapabilities` — then
-  supervise on background `watch.sh events`: `REVIEW` → judge the deliverable (approve via
+  per ticket set `assignee` (role routing), `modelHint` (complexity), `requiredCapabilities`, and
+  `move_task` them to READY (a ticket left in `BACKLOG` is invisible to every selection path, so an
+  assignee parked on `wait_for_task` never wakes for it) — then supervise by waiting the way your auth
+  allows (OAuth: loop the `wait_for_updates` MCP tool; service account: background `watch.sh events`):
+  `REVIEW` → judge the deliverable (approve via
   `move_task { toStatus: "DONE" }`, or request changes via `add_follow_up { reopen: true }`);
   `BLOCKED` → resolve/reassign; `DEAD_LETTER` → fix the brief + `requeue_task`; quiet board → health
   pass (`reap_stale_leases`, `rank_tasks`, optionally work a leaf yourself). Fold discoveries back

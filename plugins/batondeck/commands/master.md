@@ -27,14 +27,30 @@ Setup:
 
 Supervision loop (repeat until the goal is shipped):
 
-1. **Wait for events in the background — idle costs nothing.** Start
+1. **Wait for board events.** Two paths — pick by how you authenticated (same rule as
+   `/batondeck:worker` step 1).
+
+   **(a) Plugin / browser OAuth — the default, and the only one that works here.** Call the
+   **`wait_for_updates` MCP tool** in a loop: `wait_for_updates { projectId, boardId, sinceCursor?,
+   timeoutSec: 50 }`. The first call without `sinceCursor` returns the current cursor immediately;
+   carry that cursor forward and call again. It blocks SERVER-SIDE (~0 Firestore reads while parked)
+   and returns `{events: []}` with the cursor unchanged when the deadline passes.
+
+   **Do NOT reach for `scripts/watch.sh` on this path.** It shells out to `mcp.sh`, which needs
+   `BATONDECK_TOKEN` or a service-account gcloud principal. An OAuth session has NEITHER — the MCP
+   token lives inside Claude Code's MCP client and is not visible to Bash. The watch dies instantly,
+   and if you then end your turn you are waiting for a wake that will never arrive.
+
+   **(b) Headless / service account only.** With a real `BATONDECK_TOKEN` (or an activated service
+   account), start
    `"${CLAUDE_PLUGIN_ROOT}/skills/batondeck-worker/scripts/watch.sh" events '{"projectId":"P-…","boardId":"B-…"}'`
-   as a **background Bash task** (`run_in_background: true`), then **end your turn**. It long-polls
-   the core's `wait_for_updates` (~0 reads while idle, cursor persisted across runs) and exits with
-   `{events:[…]}` the moment anything happens on the board; the harness wakes you, and the Stop gate
-   permits idling while the watch is alive. Exit 3 = quiet spell: do a quick **health pass**
+   as a **background Bash task** (`run_in_background: true`), then **end your turn** — the harness
+   wakes you when it exits with events, and that is the only way to get truly zero-token idle. Exit
+   3 = deadline; restart it.
+
+   Either way, a quiet spell (empty batch / exit 3) is a cue for a quick **health pass**
    (`reap_stale_leases`; `rank_tasks` for the frontier; if READY work sits unclaimed with no live
-   workers, claim a leaf and work it yourself per the skill), restart the watch, end your turn.
+   workers, claim a leaf and work it yourself per the skill), then resume waiting the same way.
 2. **Handle the events** (each carries `type`, `taskId`, `actor`/`agent`, `ts`) — inspect the tasks
    they touch and act by status:
    - `REVIEW` → judge the deliverable (`get_task_context`). Good → `move_task { toStatus: "DONE" }`

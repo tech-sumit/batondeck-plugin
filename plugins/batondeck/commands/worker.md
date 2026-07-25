@@ -61,8 +61,11 @@ The loop (repeat until taken off shift):
    `get_task_context { includeUpstream: true }` first (**build on the `upstream` deliverables** —
    that's how the previous agent's output reaches you), clear + ack `openFollowUps`, do the work,
    record as it goes (`add_context_item`, `write_memory`, `set_summary`), `heartbeat_task` on long
-   work, then `complete_task { leaseId, deliverable }` (always a deliverable — it's the next
-   ticket's input). Dispatching also keeps THIS session's context small over a long shift. Trivial
+   work, then record what was produced (`add_artifact`, or `artifacts` on the completion —
+   `bash scripts/artifacts.sh [pr-url]` prints it) and `complete_task { leaseId, deliverable, artifacts? }`
+   (always a deliverable — it's the next ticket's input; a completion with no artifact is warned or, under
+   `artifactPolicy:"enforce"`, rejected). On a reviewing board the response's `handover.reviewer`
+   owns it from here — name them in the per-ticket terminal line, and never approve your own ticket. Dispatching also keeps THIS session's context small over a long shift. Trivial
    tickets matching your own model can be worked inline.
 4. Not processable → `block_task` / `handoff_task` / `fail_task` honestly, never silently drop.
 5. Print one terminal line per finished ticket (id, title, outcome), re-sweep (step 0), then resume

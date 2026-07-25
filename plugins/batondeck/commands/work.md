@@ -20,8 +20,17 @@ Work a BatonDeck board over MCP. Resolve blockers first, then run the loop:
 5. Do the work, **recording as you go so the next agent/human inherits a full brief**: `add_context_item`
    (decisions/notes/fields you produce), `write_memory` (durable facts), and keep `set_summary` current.
    `heartbeat_task { leaseId }` before the lease expires. **Never leave the task thinner than you found it.**
-6. Finish: `complete_task { leaseId, deliverable }` (**always pass a `deliverable`** — it's what dependants
-   build on via their upstream context), or `block_task` / `handoff_task`. Completing auto-unblocks dependants.
+6. **Bind the evidence, then finish.** Before completing, record what you produced:
+   `add_artifact { artifacts:[{kind:"pr",url}, {kind:"branch",ref}, …] }` — or pass the same array to
+   `complete_task`. `bash scripts/artifacts.sh [pr-url]` prints it for the current checkout (local git/hg
+   only, no auth). Then `complete_task { leaseId, deliverable, artifacts? }` (**always pass a `deliverable`**
+   — it's what dependants build on via their upstream context), or `block_task` / `handoff_task`. A
+   completion with no artifact comes back with a `warnings` entry, and is REJECTED on a project set to
+   `artifactPolicy:"enforce"` — don't ignore it; label the ticket `no-artifact` if it truly produces none.
+   Completing auto-unblocks dependants. On a reviewing board the ticket is HANDED OVER — the response's
+   `handover.reviewer` now owns it: print a sign-off line naming them and what to check, and do NOT move
+   your own ticket REVIEW → DONE (a self-approval is flagged, or rejected under
+   `selfApprovalPolicy:"enforce"`).
 
 If a task you'd finished reappears as READY/IN_PROGRESS (or you see a `task.reopened` event), a reviewer
 requested changes via a follow-up — **re-claim it**, read the new `openFollowUps`, address + ack them, and

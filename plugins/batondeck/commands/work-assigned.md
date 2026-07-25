@@ -27,7 +27,11 @@ Loop until your inbox is empty:
      `ack_follow_up { projectId, taskId, followUpId }`. Then do the work, recording as you go
      (`add_context_item`, `write_memory`, `set_summary`), `heartbeat_task` before the lease expires —
      re-checking `openFollowUps` on each heartbeat and clearing any new directive — then
-     `complete_task { leaseId, deliverable }` (always pass a `deliverable`). Completing auto-unblocks dependants.
+     record what you produced (`add_artifact { artifacts:[…] }`, or pass `artifacts` on the completion —
+     `bash scripts/artifacts.sh [pr-url]` prints it for the current checkout) and
+     `complete_task { leaseId, deliverable, artifacts? }` (always pass a `deliverable`; a completion with no
+     artifact is warned, or rejected under `artifactPolicy:"enforce"`). Completing auto-unblocks dependants;
+     on a reviewing board say who `handover.reviewer` handed it to, and never approve your own ticket.
    - **Not processable** (out of your scope / needs a human or another agent) → say so in the terminal, record
      why on the ticket with `add_context_item { type: "note", … }`, then `handoff_task` or `block_task` as
      appropriate (don't silently drop it).
