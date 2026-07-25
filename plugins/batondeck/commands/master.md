@@ -53,9 +53,13 @@ Supervision loop (repeat until the goal is shipped):
    workers, claim a leaf and work it yourself per the skill), then resume waiting the same way.
 2. **Handle the events** (each carries `type`, `taskId`, `actor`/`agent`, `ts`) — inspect the tasks
    they touch and act by status:
-   - `REVIEW` → judge the deliverable (`get_task_context`). Good → `move_task { toStatus: "DONE" }`
-     (auto-unblocks dependants — their assignees wake instantly). Not good →
-     `add_follow_up { reopen: true, body: <concrete change requests> }`.
+   - `REVIEW` → judge the deliverable (`get_task_context`) **and its `artifacts[]`** — a deliverable
+     that names a commit as bare text is not reachable evidence, and approving it is how a board
+     rots into unauditable. Be a skeptic: re-run one of its proofs rather than trusting that they
+     ran, and treat whatever the author said they did NOT verify as your work queue. Good →
+     `move_task { toStatus: "DONE" }` (auto-unblocks dependants — their assignees wake instantly).
+     Not good → `add_follow_up { reopen: true, body: <concrete change requests> }`. Never approve a
+     ticket you completed yourself.
    - `DONE` → check what the auto-unblock opened; assign/re-prioritize the new frontier if needed.
    - `BLOCKED` → read the reason; resolve it (add the missing dependency/answer as a follow-up,
      reassign, or do it yourself).

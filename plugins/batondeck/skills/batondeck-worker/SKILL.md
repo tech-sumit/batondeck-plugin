@@ -417,6 +417,14 @@ To get more done at once, run **several agents/sessions in parallel** and prompt
   blockers — automatically. For maximum throughput, plan **wide** trees (many independent leaves) and keep
   chains **shallow**.
 
+**Working the same repo from several agents?** The frontier says what *may* run; what actually bounds
+you is **file overlap**. Give each concurrent ticket its own git worktree (started from a fresh
+`git fetch && git reset --hard origin/main`), fence each ticket to a directory and say so in its brief,
+and sequence overlapping tickets with `add_dependency` rather than racing them. Critically: **a gate
+that passes inside a worktree proves nothing about the integration branch** — whoever merges re-runs it
+there, on the merge result. See `references/parallel-delivery.md` for the full method, including the
+class of bug that exists in no single ticket and only appears once two land together.
+
 ## Tooling (scripts)
 
 Bundled with this skill under `scripts/` (self-contained; configured by the env in **Connect**):
