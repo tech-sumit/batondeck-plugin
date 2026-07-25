@@ -414,6 +414,14 @@ mutations are the coordination. With the BatonDeck **plugin**, `/batondeck:worke
 tokens) and otherwise steers it back into the loop, until `/batondeck:off`. Without the plugin, run
 the same loops prompt-driven.
 
+> **Authentication decides HOW you wait.** With the plugin (browser OAuth) the MCP token lives in
+> Claude Code's MCP client and is invisible to Bash, so `scripts/watch.sh` — which shells out to
+> `mcp.sh` — cannot authenticate and dies with "no BATONDECK_TOKEN". On that path, wait by calling the
+> **`wait_for_task` / `wait_for_updates` MCP tools in a loop** (they block server-side up to
+> `timeoutSec`, ~0 reads while parked). Use `watch.sh` as a background task ONLY when you have a real
+> `BATONDECK_TOKEN` or an activated service account — that is the headless path, and the only one that
+> gives zero-token idle by ending the turn.
+
 - **Worker** (accept + do): every cycle is **sweep → work → sweep → wait**.
   1. **Sweep your inbox first, before touching the watch** — `next_task { assignee }` for READY *and*
      `list_tasks { assignee, status }` for **`REVIEW`**, `BLOCKED`, `DEAD_LETTER` (see **the board

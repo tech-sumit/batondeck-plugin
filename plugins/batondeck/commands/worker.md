@@ -29,12 +29,27 @@ The loop (repeat until taken off shift):
    Work anything found — `REVIEW`: act on `openFollowUps` + `ack_follow_up`, or judge it to `DONE` /
    send back with `add_follow_up { reopen: true }`. Re-sweep after every ticket; only a fully empty
    sweep sends you to step 1.
-1. **Wait in the background — idle costs nothing.** Start
+1. **Wait.** Two paths — pick by how you authenticated.
+
+   **(a) Plugin / browser OAuth — the default, and the only one that works here.** Call the
+   **`wait_for_task` MCP tool** in a loop:
+   `wait_for_task { projectId, boardId, assignee?, timeoutSec: 50 }`. It blocks SERVER-SIDE and
+   returns `{task: null}` when the deadline passes — just call it again. This is not busy-polling;
+   the wait happens on the server, costing ~0 Firestore reads.
+
+   **Do NOT reach for `scripts/watch.sh` on this path.** It shells out to `mcp.sh`, which needs
+   `BATONDECK_TOKEN` or a service-account gcloud principal. An OAuth session has NEITHER — the MCP
+   token lives inside Claude Code's MCP client and is not visible to Bash. The watch dies instantly
+   with "no BATONDECK_TOKEN", and if you then end your turn you are waiting for a wake that will
+   never arrive. That is the single most common way this loop appears "broken".
+
+   **(b) Headless / service account only.** With a real `BATONDECK_TOKEN` (or an activated service
+   account), run
    `"${CLAUDE_PLUGIN_ROOT}/skills/batondeck-worker/scripts/watch.sh" work '{"projectId":"P-…","boardId":"B-…","assignee":"<name>"}'`
-   as a **background Bash task** (`run_in_background: true`), then **end your turn**. The harness
-   wakes you when it exits with a task; the Stop gate permits idling while the watch is alive. Drop
-   `assignee` to serve the whole claimable pool; add `capabilities`/`useProfile` to match your
-   profile. Exit 3 = deadline with no work — just restart the watch and end your turn again.
+   as a **background Bash task** (`run_in_background: true`) and **end your turn** — the harness wakes
+   you when it exits with a task. This is the only way to get truly zero-token idle, because the
+   session is not holding a turn open. Exit 3 = deadline with no work; restart it.
+
 2. **Claim:** `claim_task { projectId, taskId }` → save the `leaseId` (lost the race /
    `CONFLICT_LOCKED` → back to 1).
 3. **Honor the ticket's `modelHint` — dispatch, don't grind.** Read `task.modelHint`
@@ -50,12 +65,13 @@ The loop (repeat until taken off shift):
    ticket's input). Dispatching also keeps THIS session's context small over a long shift. Trivial
    tickets matching your own model can be worked inline.
 4. Not processable → `block_task` / `handoff_task` / `fail_task` honestly, never silently drop.
-5. Print one terminal line per finished ticket (id, title, outcome), re-sweep (step 0), restart the
-   background watch, end your turn.
+5. Print one terminal line per finished ticket (id, title, outcome), re-sweep (step 0), then resume
+   waiting the same way you did in step 1 (MCP `wait_for_task` loop, or restart the background watch
+   and end your turn on the headless path).
 
 **An empty board is a reason to wait, never a reason to stop.** Do not report "there's no outstanding
 work anywhere" and hand the turn back — that ends the shift the user asked you to hold. Say "inbox empty
-— waiting", restart the watch, end the turn. Only `/batondeck:off` (or repeated auth/network failure)
+— waiting" and resume the wait from step 1. Only `/batondeck:off` (or repeated auth/network failure)
 takes you off shift.
 
 Rules: a reopened task is a correction loop — re-claim, address the new follow-ups, ack,
