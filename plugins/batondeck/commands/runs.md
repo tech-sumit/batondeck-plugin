@@ -19,7 +19,9 @@ The flow (pull-based, prompt-driven — nothing runs in the background):
    so it can't be claimed directly while the race is open. Add a latecomer with
    `open_run { projectId, taskId, agent?, brief? }`.
 2. **Let the runs run.** Each run is picked up and worked like a normal ticket (`/batondeck:work` or an
-   assigned agent), ending in `complete_task` with that attempt's `deliverable`. You don't drive the work
+   assigned agent), ending in `complete_task` with that attempt's `deliverable` **and its `artifacts`** —
+   `pick_run` promotes both onto the parent, so a run with no artifact leaves the parent unauditable
+   (`list_tasks { missingArtifacts:true }` flags it forever). You don't drive the work
    here — you wait for runs to submit (REVIEW/DONE with a deliverable).
 3. **Compare.** `list_runs { projectId, taskId }` returns each run's `{ status, assignee, leaseHolder,
    hasDeliverable, deliverable, version }`. Judge the submitted deliverables.

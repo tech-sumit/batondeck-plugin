@@ -409,8 +409,10 @@ claimable child task linked to its parent by `runOf` (distinct from decompositio
 claim/lease/heartbeat/version/event machinery is reused, not reinvented. Two roles:
 
 **As a worker, a run is just a normal task.** It arrives through `next_task`/`claim_next` like anything else;
-claim it, load context, do the work, and `complete_task { leaseId, deliverable }` with your best attempt as
-the deliverable. You don't need to know it's a run — work it on its merits. (The racing **parent** itself is
+claim it, load context, do the work, and `complete_task { leaseId, deliverable, artifacts }` with your best
+attempt as the deliverable — **bind the artifacts here too**: `pick_run` promotes the winner's `artifacts`
+onto the parent, so a run that recorded none leaves the parent unauditable no matter which one wins. You
+don't need to know it's a run — work it on its merits. (The racing **parent** itself is
 non-claimable while the race is open, so you'll never be handed it directly.)
 
 **As a lead/orchestrator,** open and resolve the race:

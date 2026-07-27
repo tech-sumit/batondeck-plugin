@@ -127,7 +127,14 @@ parallel. Per task:
 3. **Do the work, recording as you go** — `add_context_item` (decisions/notes), `write_memory` (durable
    facts), `update_task`/`customFields` (results). Leave it ≥ as populated as you found it.
 4. **Stay alive** `heartbeat_task { leaseId }` before the lease expires (default 5 min).
-5. **Finish** — Done → `complete_task { leaseId }` (auto-unblocks dependants on DONE). Stuck → `block_task
+5. **Finish — bind the evidence FIRST.** `add_artifact { projectId, taskId, artifacts:[…] }` with the
+   `pr` URL *and* the `branch`/`commit` refs (separate entries: what was reviewed vs where it lives) —
+   `bash skills/batondeck-worker/scripts/artifacts.sh [pr-url]` prints the array for the current
+   checkout from local git/hg, no auth needed. (That path is NOT `scripts/…` like the others in this
+   file — `artifacts.sh` ships only under the skill dir, and skill-lint accepts either location.)
+   Then Done → `complete_task { leaseId, deliverable, artifacts? }` (auto-unblocks dependants on DONE). **Always pass a `deliverable`** — it is the next ticket's input. A completion
+   with no artifact returns a `warnings` entry, and is REJECTED on a project set to
+   `artifactPolicy:"enforce"`; label the ticket `no-artifact` if it truly produces none. Stuck → `block_task
    { leaseId, reason, blockedBy:[…] }` (records the edge). Passing on → `summarize_for_handoff` then
    `handoff_task { leaseId, toAgent, memoryNote }`.
 
@@ -139,7 +146,7 @@ the mutex); completing a task **auto-unblocks** dependants, widening the frontie
 (many independent leaves), keep chains **shallow**.
 
 ```bash
-eval "$(scripts/token.sh)"                                        # or export BATONDECK_TOKEN=<id-token>
+eval "$(scripts/token.sh)"                    # or export BATONDECK_TOKEN=<access token, per line 32>
 export BATONDECK_PROJECT=P-…  BATONDECK_BOARD=B-…
 export AGENT_CMD='cursor-agent -p "Work BatonDeck task $1 (lease $2) per the batondeck-worker rule: \
                   get_task_context, do it, heartbeat, then complete_task (or block/handoff)."'
