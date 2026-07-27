@@ -22,12 +22,15 @@ mcp-gateway `/mcp` endpoint via `mcp-remote`. Enable it in Cursor Settings → M
 **browser OAuth sign-in** (Google account picker) — no `gcloud`, no tokens to manage. Then call the tools
 directly (`list_projects`, `next_task`, `claim_task`, …).
 
-**B — terminal scripts (advanced / headless).** For CI or non-interactive runs, the bundled scripts mint
-a Google ID token with your own `gcloud` and call the core directly — every `tool { … }` in this rule
-maps to `scripts/mcp.sh tool '{ … }'`:
+**B — terminal scripts (advanced).** The bundled scripts call the core directly with a token **you
+supply** — every `tool { … }` in this rule maps to `scripts/mcp.sh tool '{ … }'`. They mint nothing:
+a `gcloud`-minted Google ID token is rejected by the core on its issuer, and there is **no headless
+token flow today** (the authorization server offers only browser sign-in + refresh), so option A is
+the one that works from a cold start.
 
 ```bash
-eval "$(scripts/token.sh)"                 # exports BATONDECK_TOKEN
+export BATONDECK_TOKEN=…                   # access token from https://mcp.batondeck.com
+eval "$(scripts/token.sh)"                 # re-exports it + the matching core URL
 export BATONDECK_PROJECT=P-…  BATONDECK_BOARD=B-…
 scripts/mcp.sh list_projects '{}'
 scripts/mcp.sh next_task "{\"projectId\":\"$BATONDECK_PROJECT\",\"boardId\":\"$BATONDECK_BOARD\"}"
@@ -38,15 +41,17 @@ Connection env for the advanced script path (no values hardcoded except the host
 | env | meaning |
 |---|---|
 | `BATONDECK_CORE_URL` | core base URL (default: the hosted reference instance; set for self-hosted) |
-| `BATONDECK_TOKEN` | a Google ID token (audience = core URL) — bring your own, **or** leave unset to mint |
+| `BATONDECK_TOKEN` | an access token issued by `https://mcp.batondeck.com` (audience = core URL) — **you supply it** |
 | `BATONDECK_PROJECT` / `BATONDECK_BOARD` | the project/board the worker + fleet operate on |
 
-`scripts/mcp.sh` mints for your **active** gcloud principal — it does not impersonate a service account.
-For a headless SA, activate it first (`gcloud auth activate-service-account --key-file=KEY.json`). Both
-variables also answer to their older `CONDUCTOR_*` spellings.
+`scripts/mcp.sh` mints nothing and fails fast when `BATONDECK_TOKEN` is unset. `gcloud auth login` /
+`gcloud auth activate-service-account` cannot produce an acceptable token — the core rejects on the
+token's **issuer**, not on the principal. Both variables also answer to their older `CONDUCTOR_*`
+spellings.
 
-Your identity needs to be a **member of a project** (`add_member { projectId, identityId, role }`) and,
-for an agent SA, `roles/run.invoker` on the core. Then discover work: `list_projects` → `list_boards`.
+Your identity needs to be a **member of a project** (`add_member { projectId, identityId, role }`).
+Cloud Run IAM is not the gate — the core's ingress is public and it enforces auth itself, so
+`roles/run.invoker` grants nothing extra. Then discover work: `list_projects` → `list_boards`.
 
 ## Plan: build a dependency tree on the board
 

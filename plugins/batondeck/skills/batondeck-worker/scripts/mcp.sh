@@ -11,8 +11,10 @@
 # Recommended auth is the BatonDeck plugin's MCP OAuth; this caller is for direct/headless shell use.
 # Connection (env):
 #   BATONDECK_CORE_URL     core base URL (default: the hosted reference instance)
-#   BATONDECK_TOKEN        Google ID token, audience = core URL (bring your own), OR leave unset to mint
-#                          one for your ACTIVE gcloud principal (no service-account impersonation)
+#   BATONDECK_TOKEN        REQUIRED: an access token issued by https://mcp.batondeck.com, audience =
+#                          core URL. Nothing is minted here — the gcloud ID token this used to mint is
+#                          rejected by the core (see the error text below). A core running
+#                          AUTH_MODE=dev ignores the value, so any placeholder satisfies the check.
 #   BATONDECK_AGENT        optional display NAME (humans see/assign to it). Free to change at any time —
 #                          presence is keyed by the stable id below, so a rename updates one row in place.
 #   BATONDECK_AGENT_ID     optional STABLE per-agent id ("deviceId beneath the name"). If unset, a UUID is
@@ -31,24 +33,26 @@ done
 unset _v _b _c
 CORE="${BATONDECK_CORE_URL:-${CONDUCTOR_CORE_URL:-https://conductor-core-hn5syhhsja-el.a.run.app}}"
 
-if [ -z "${BATONDECK_TOKEN:-}" ]; then
-  BATONDECK_TOKEN="$(gcloud auth print-identity-token --audiences="${CORE}" 2>/dev/null || true)"
-fi
-# NOTE: `gcloud auth print-identity-token --audiences=…` only works for a SERVICE ACCOUNT principal —
-# a normal user login fails with "Invalid account type for --audiences". So do NOT tell the user to run
-# `gcloud auth login`; that is the one remedy guaranteed not to help here.
+# NO MINT HERE, DELIBERATELY. The core accepts only access tokens issued by the BatonDeck MCP
+# authorization server (iss = https://mcp.batondeck.com, aud = core URL, kind "access"). The gcloud
+# ID token this script used to mint carries iss = https://accounts.google.com and is rejected on the
+# issuer — 401 UNAUTHENTICATED, every time. See src/auth/verify.ts.
 [ -n "${BATONDECK_TOKEN:-}" ] || {
   cat >&2 <<'MSG'
-ERROR: no BATONDECK_TOKEN, and none could be minted.
+ERROR: no BATONDECK_TOKEN — and this caller no longer mints one, because the token it used to mint
+is rejected by the core on its ISSUER (gcloud Google ID token vs the required
+https://mcp.batondeck.com access token). There is no headless token flow today: the authorization
+server offers only browser sign-in + refresh. Pick one:
 
-This headless caller needs an audience-scoped Google ID token. Pick one:
-  * Service account (headless/CI):  gcloud auth activate-service-account --key-file=KEY.json
-    then re-run. Grant it access first with scripts/onboard-agent.sh <sa-email>.
-  * Bring your own:                 export BATONDECK_TOKEN="$(... your ID token ...)"
-  * Interactive agent use:          prefer the BatonDeck plugin's MCP OAuth over this script.
+  * MCP OAuth (recommended, works today): point your MCP client at
+        https://mcp.batondeck.com/mcp
+    The BatonDeck plugin ships this in its .mcp.json; any other stdio client can use
+        npx -y mcp-remote https://mcp.batondeck.com/mcp
+  * Bring your own:   export BATONDECK_TOKEN=<access token from https://mcp.batondeck.com>
+  * Local dev core:   AUTH_MODE=dev ignores the token — export BATONDECK_TOKEN=dev to get past here.
 
-A plain `gcloud auth login` user account CANNOT mint one (gcloud rejects --audiences for
-user principals), so re-running it will not fix this.
+`gcloud auth login` and `gcloud auth activate-service-account` CANNOT help: the core rejects on the
+token's issuer, not on which principal minted it.
 MSG
   exit 1
 }

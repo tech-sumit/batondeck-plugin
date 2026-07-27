@@ -1,39 +1,46 @@
 #!/usr/bin/env bash
-# batondeck-worker skill — mint the Google ID token a DIRECT shell call to the core needs, printed as
-# exports. Google ID tokens last ~1h; re-run when calls start returning 401.
+# batondeck-worker skill — print the connection env a DIRECT shell call to the core needs, as exports.
 #
-# The recommended way to connect is the BatonDeck plugin's MCP OAuth (browser sign-in, no tokens to
-# paste). This helper is only for direct/headless shell calls; it mints a token for your ACTIVE gcloud
-# principal — no service-account impersonation. Or set BATONDECK_TOKEN yourself and skip this.
+# THIS SCRIPT NO LONGER MINTS A TOKEN, because the token it used to mint is rejected. The core is an
+# OAuth 2.0 resource server: it accepts only ACCESS TOKENS issued by the BatonDeck MCP authorization
+# server (iss = https://mcp.batondeck.com, aud = the core URL, kind "access"), verified against that
+# AS's JWKS. A gcloud-minted Google ID token carries iss = https://accounts.google.com and fails both
+# the signature and the issuer check — the core answers
+#   401 {"jsonrpc":"2.0","error":{"code":-32001,"message":"UNAUTHENTICATED"},"id":null}
+# Minting one and handing it over would only produce that 401, so the mint is gone and this script
+# fails fast instead. See src/auth/verify.ts.
 #
-# Usage:  eval "$(scripts/token.sh)"      # exports BATONDECK_TOKEN + BATONDECK_TOKEN (aliases)
-# Env:    BATONDECK_CORE_URL (or the older BATONDECK_CORE_URL) — core base URL, default: hosted instance
+# There is NO headless/CI token flow today: that AS advertises only `authorization_code` (browser
+# sign-in) and `refresh_token`. Bring a token, or connect over MCP OAuth (see the error text below).
+#
+# Usage:  export BATONDECK_TOKEN=<access token>; eval "$(scripts/token.sh)"
+# Env:    BATONDECK_CORE_URL — core base URL, default: the hosted instance
 set -euo pipefail
 CORE="${BATONDECK_CORE_URL:-${CONDUCTOR_CORE_URL:-https://conductor-core-hn5syhhsja-el.a.run.app}}"
-# `|| true` matters: without it `set -e` aborts here and the diagnostic below never prints.
-TOKEN="$(gcloud auth print-identity-token --audiences="${CORE}" 2>/dev/null || true)"
-# NOTE: `--audiences=…` only works for a SERVICE ACCOUNT principal — a normal user login fails with
-# "Invalid account type for --audiences". So do NOT tell the user to run `gcloud auth login`; that is
-# the one remedy guaranteed not to help here.
+TOKEN="${BATONDECK_TOKEN:-${CONDUCTOR_TOKEN:-}}"
 [ -n "${TOKEN}" ] || {
   cat >&2 <<'MSG'
-ERROR: could not mint a token.
+ERROR: no BATONDECK_TOKEN — and this script can no longer mint one.
 
-A direct shell call to the core needs an audience-scoped Google ID token. Pick one:
-  * Service account (headless/CI):  gcloud auth activate-service-account --key-file=KEY.json
-    then re-run. Grant it access first with scripts/onboard-agent.sh <sa-email>.
-  * Bring your own:                 export BATONDECK_TOKEN="$(... your ID token ...)"
-  * Interactive agent use:          prefer the BatonDeck plugin's MCP OAuth over this script.
+The core accepts only access tokens issued by https://mcp.batondeck.com (aud = the core URL). A
+gcloud-minted Google ID token is rejected on its ISSUER, so the old mint here returned a token that
+always 401'd. There is no headless token flow today (the authorization server offers only browser
+sign-in + refresh). Pick one:
 
-A plain `gcloud auth login` user account CANNOT mint one (gcloud rejects --audiences for
-user principals), so re-running it will not fix this.
+  * MCP OAuth (recommended, works today): point your MCP client at
+        https://mcp.batondeck.com/mcp
+    The BatonDeck plugin ships this in its .mcp.json; any other stdio client can use
+        npx -y mcp-remote https://mcp.batondeck.com/mcp
+    Sign in once in the browser; the client then holds the token for you.
+  * Bring your own:   export BATONDECK_TOKEN=<access token from https://mcp.batondeck.com>
+  * Local dev core:   a core started with AUTH_MODE=dev needs no token at all.
+
+`gcloud auth login` and `gcloud auth activate-service-account` CANNOT help: the core rejects on the
+token's issuer, not on which principal minted it.
 MSG
   exit 1
 }
-# Both spellings: BATONDECK_* is the product name; CONDUCTOR_* is what the older scripts read.
-echo "export BATONDECK_TOKEN=${TOKEN}"
 echo "export BATONDECK_TOKEN=${TOKEN}"
 # Carry the RESOLVED core through too: the token's audience is this URL, so mcp.sh must call the same
 # host or every request 401s. (mcp.sh accepts both spellings; BATONDECK_* wins.)
-echo "export BATONDECK_CORE_URL=${CORE}"
 echo "export BATONDECK_CORE_URL=${CORE}"

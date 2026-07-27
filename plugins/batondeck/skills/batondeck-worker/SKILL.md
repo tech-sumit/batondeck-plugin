@@ -37,19 +37,28 @@ worth having if they're *used*, so this is non-negotiable both ways:
 
 ## Connect
 
-Point your MCP client at the BatonDeck core's Streamable HTTP endpoint (`/mcp`), authenticating
-with a Google ID token whose **audience is the core service URL**.
+**Point your MCP client at `https://mcp.batondeck.com/mcp` and sign in through the browser.** That is
+the connection that works: the BatonDeck plugin ships it in its `.mcp.json`, and any other stdio MCP
+client can reach it with `npx -y mcp-remote https://mcp.batondeck.com/mcp`.
 
-- **Endpoint:** `https://conductor-core-hn5syhhsja-el.a.run.app/mcp` (the hosted instance; for your
-  own deployment use `terraform -chdir=infra output -raw core_url` and append `/mcp`).
-- **Audience:** the same URL without `/mcp`.
-- **Header:** `Authorization: Bearer <id-token>`.
+- **Endpoint:** `https://mcp.batondeck.com/mcp` (Streamable HTTP). The core behind it is
+  `https://conductor-core-hn5syhhsja-el.a.run.app/mcp` — for your own deployment,
+  `terraform -chdir=infra output -raw core_url` plus `/mcp`.
+- **Header:** `Authorization: Bearer <access token>` — issued by `https://mcp.batondeck.com`, with the
+  core URL as its audience.
 
 The core is **public at Cloud Run and enforces auth itself** (its own OAuth 2.0 resource server). An
 unauthenticated request gets `401` with an RFC 6750 `WWW-Authenticate` challenge, and the core serves
 OAuth 2.0 Protected Resource Metadata (RFC 9728) at `/.well-known/oauth-protected-resource` naming
-Google as the authorization server. Authorization is by **project membership**: a valid token with no
-membership sees nothing.
+**`https://mcp.batondeck.com` as the authorization server**. Authorization is by **project
+membership**: a valid token with no membership sees nothing.
+
+> **A gcloud-minted Google ID token does NOT work, and there is no headless token flow today.** The
+> core verifies `iss == https://mcp.batondeck.com`; a Google ID token carries
+> `iss = https://accounts.google.com` and is rejected — `401 UNAUTHENTICATED`. The authorization
+> server advertises only `authorization_code` (browser sign-in) and `refresh_token`, so a CI/headless
+> run has to be given a token obtained elsewhere. Earlier versions of this skill told you to mint one
+> with `gcloud`; that instruction was wrong and the helper scripts now refuse rather than 401.
 
 This skill is a **self-contained package**: everything it needs is under `scripts/` (a minimal MCP
 caller, a token helper, a tasknet seeder, and a blocking watcher — `watch.sh`) and `references/`. The scripts
@@ -59,7 +68,7 @@ default URL):
 | env | meaning |
 |---|---|
 | `BATONDECK_CORE_URL` | core base URL (default: the hosted reference instance; set for self-hosted) |
-| `BATONDECK_TOKEN` | a Google ID token (audience = core URL) — bring your own, **or** leave unset to mint one for your active gcloud principal |
+| `BATONDECK_TOKEN` | an access token issued by `https://mcp.batondeck.com` (audience = core URL) — **you must supply it**; nothing is minted for you |
 | `BATONDECK_PROJECT` / `BATONDECK_BOARD` | the project/board you operate on |
 
 > These are the canonical names. The pre-rename `CONDUCTOR_*` spellings are still accepted by
@@ -67,8 +76,8 @@ default URL):
 
 The recommended way to connect is the **BatonDeck plugin** (MCP OAuth — Google sign-in in the browser, no
 tokens to paste); once connected you just call the tools. The shell scripts below are an optional
-convenience for direct/headless calls and mint a token for your **active gcloud principal** — no
-service-account impersonation. You must be a member of a project
+convenience for direct shell calls **once you already hold a token** — they mint nothing and fail fast
+with instructions when `BATONDECK_TOKEN` is unset. You must be a member of a project
 (`add_member { projectId, identityId, role: "master" }` to plan AND work; `"worker"` for a fleet
 member that only pulls, does and reports — it cannot create work or move someone else's task). Discover
 work with `list_projects` → `list_boards`.
@@ -79,7 +88,8 @@ non-MCP runtime) use the bundled caller — **every `tool { … }` call in this 
 once, then call:
 
 ```bash
-eval "$(scripts/token.sh)"                              # exports BATONDECK_TOKEN (active gcloud principal)
+export BATONDECK_TOKEN=…                                # access token from https://mcp.batondeck.com
+eval "$(scripts/token.sh)"                              # re-exports it + the matching core URL
 export BATONDECK_PROJECT=P-…  BATONDECK_BOARD=B-…
 scripts/mcp.sh list_projects '{}'
 scripts/mcp.sh next_task "{\"projectId\":\"$BATONDECK_PROJECT\",\"boardId\":\"$BATONDECK_BOARD\"}"

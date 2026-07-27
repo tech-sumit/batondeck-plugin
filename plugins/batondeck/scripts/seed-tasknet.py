@@ -14,21 +14,33 @@ Plan JSON (file arg or stdin):
   ]
 }
 
-Connection (env): BATONDECK_CORE_URL (default hosted), BATONDECK_TOKEN (bring your own, else a token is
-minted for your active gcloud principal). Recommended auth is the BatonDeck plugin's MCP OAuth.
+Connection (env): BATONDECK_CORE_URL (default hosted), BATONDECK_TOKEN (REQUIRED — an access token
+issued by https://mcp.batondeck.com, audience = the core URL). Nothing is minted here: the gcloud ID
+token this used to mint is rejected by the core on its issuer. Recommended auth is the BatonDeck
+plugin's MCP OAuth (https://mcp.batondeck.com/mcp).
 
 Usage:  scripts/seed-tasknet.py plan.json   |   cat plan.json | scripts/seed-tasknet.py
 """
-import json, os, subprocess, sys, urllib.request
+import json, os, sys, urllib.request
 
 CORE = os.environ.get("BATONDECK_CORE_URL", "https://conductor-core-hn5syhhsja-el.a.run.app")
 
-def _mint():
-    # Mint an ID token for the active gcloud principal (no service-account impersonation).
-    cmd = ["gcloud", "auth", "print-identity-token", f"--audiences={CORE}"]
-    return subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-
-TOKEN = os.environ.get("BATONDECK_TOKEN") or _mint()
+# NO MINT HERE, DELIBERATELY: the core accepts only access tokens issued by the BatonDeck MCP
+# authorization server (iss = https://mcp.batondeck.com, aud = core URL). The gcloud ID token this
+# script used to mint carries iss = https://accounts.google.com and is rejected on the issuer —
+# 401 UNAUTHENTICATED, every time. See src/auth/verify.ts.
+TOKEN = os.environ.get("BATONDECK_TOKEN", "")
+if not TOKEN:
+    sys.exit(
+        "ERROR: no BATONDECK_TOKEN — and this seeder no longer mints one, because the token it used\n"
+        "to mint is rejected by the core on its ISSUER. There is no headless token flow today (the\n"
+        "authorization server offers only browser sign-in + refresh). Pick one:\n"
+        "  * MCP OAuth (recommended): point your MCP client at https://mcp.batondeck.com/mcp — the\n"
+        "    BatonDeck plugin ships this; other stdio clients: npx -y mcp-remote https://mcp.batondeck.com/mcp\n"
+        "  * Bring your own: export BATONDECK_TOKEN=<access token from https://mcp.batondeck.com>\n"
+        "  * Local dev core: AUTH_MODE=dev ignores the token — export BATONDECK_TOKEN=dev.\n"
+        "`gcloud auth login` / `activate-service-account` cannot help: the rejection is on the issuer."
+    )
 
 _sid = None
 _cookie = None

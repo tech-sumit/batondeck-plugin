@@ -22,9 +22,9 @@
 #              the *session* PID explicitly — $PPID would be the hook, which exits at once.
 #   WAIT_SECS  long-poll window, clamped to 1..50 (default 20).   WATCH_SECS  agent-liveness poll (default 2).
 #   plus the connection env mcp.sh actually reads: BATONDECK_TOKEN / BATONDECK_CORE_URL (their
-#   CONDUCTOR_* spellings still work). `eval "$(./token.sh)"` exports the token. There is no
-#   service-account impersonation on this path — activate the SA (`gcloud auth
-#   activate-service-account`) or bring your own token.
+#   CONDUCTOR_* spellings still work). You must SUPPLY BATONDECK_TOKEN — an access token issued by
+#   https://mcp.batondeck.com. Nothing mints one: the core rejects gcloud-minted Google ID tokens on
+#   their issuer, and `gcloud auth activate-service-account` does not change that.
 #
 # Assignment is advisory — an assigned task is still claimable by anyone, so we claim promptly and wait
 # for the next if we lose the race. (PID reuse is a theoretical risk for very short-lived agents.)

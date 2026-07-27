@@ -16,7 +16,9 @@ case "${1:-}" in
     ;;
   end)
     [ -n "${sid}" ] && rm -f "${dir}/mode-${sid}"
-    # ponytail: also clear the no-session-id fallback flag; two env-less concurrent sessions would share it anyway
+    # ponytail: KNOWN CEILING — also clear the no-session-id fallback flag. Two env-less concurrent
+    # sessions share that flag, so one ending disarms the other. Accepted: env-less sessions are the
+    # rare fallback. Upgrade path: key the fallback on PPID if concurrent env-less sessions turn up.
     rm -f "${dir}/mode-default"
     ;;
 esac

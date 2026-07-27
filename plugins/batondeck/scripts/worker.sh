@@ -7,9 +7,9 @@
 # Env: BATONDECK_PROJECT, BATONDECK_BOARD (required); AGENT_CMD (required) invoked as:
 #        AGENT_CMD <taskId> <leaseId>
 #      plus the connection env mcp.sh actually reads: BATONDECK_TOKEN / BATONDECK_CORE_URL (their
-#      CONDUCTOR_* spellings still work). `eval "$(./token.sh)"` exports the token. There is no
-#      service-account impersonation on this path — activate the SA (`gcloud auth
-#      activate-service-account`) or bring your own token.
+#      CONDUCTOR_* spellings still work). You must SUPPLY BATONDECK_TOKEN — an access token issued by
+#      https://mcp.batondeck.com. Nothing mints one: the core rejects gcloud-minted Google ID tokens
+#      on their issuer, and `gcloud auth activate-service-account` does not change that.
 #      IDLE_SLEEP  seconds between polls when nothing is workable (default 5)
 set -euo pipefail
 cd "$(dirname "$0")"

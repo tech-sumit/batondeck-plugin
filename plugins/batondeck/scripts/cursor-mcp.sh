@@ -1,32 +1,27 @@
 #!/usr/bin/env bash
 # batondeck-skill — native MCP launcher for Cursor (and any stdio MCP client).
-# Mints a Google ID token (audience = core URL) and bridges the client's stdio MCP transport to the
-# BatonDeck core's Streamable HTTP /mcp endpoint via `mcp-remote`. The token lasts ~1h — restart the
-# MCP server in Cursor (Settings → MCP → reload) to refresh it.
+# Bridges the client's stdio MCP transport to BatonDeck's Streamable HTTP endpoint via `mcp-remote`.
 #
-# This is the gcloud/headless variant. It points at the IAM-protected CORE, not the OAuth gateway
-# (mcp.batondeck.com): the gateway verifies bearers against its OWN JWKS (issuer/audience = the gateway,
-# kind "access") and rejects a Google-issued ID token on every request. For browser OAuth use the plugin's
-# bundled MCP server (plugin/.mcp.json → https://mcp.batondeck.com/mcp) instead of this script.
+# THIS NO LONGER MINTS A gcloud TOKEN. It used to mint a Google ID token (audience = core URL) and
+# point at the IAM-protected core. That path is dead: the core is an OAuth 2.0 resource server and
+# verifies `iss == https://mcp.batondeck.com` against that server's JWKS, so a Google-issued ID token
+# (`iss = https://accounts.google.com`) fails signature AND issuer — 401 UNAUTHENTICATED, every time.
+# See src/auth/verify.ts.
 #
-# Env (same as the other scripts):
-#   BATONDECK_CORE_URL      core base URL (default: the hosted reference core, IAM-protected)
-#   BATONDECK_TOKEN         a Google ID token (audience = core URL); else minted below
-#   BATONDECK_AGENT_SA      mint by impersonating this service account (else the active gcloud principal)
-#   BATONDECK_ON_BEHALF_OF  optional on-behalf-of identity (only when authing as a trusted gateway SA)
+# What runs instead: `mcp-remote` against https://mcp.batondeck.com/mcp, which performs the browser
+# OAuth flow itself (dynamic client registration + PKCE) and caches the token — the same connection
+# the plugin's own .mcp.json uses. Sign in once; no token to paste, no hourly re-mint.
+#
+# Env:
+#   BATONDECK_MCP_URL   endpoint (default: https://mcp.batondeck.com/mcp; set for a self-hosted one)
+#   BATONDECK_CORE_URL  legacy: a core BASE url, still honoured — `/mcp` is appended
+#   BATONDECK_TOKEN     optional: skip the browser flow with an access token you already hold
+#                       (must be issued by the same authorization server, audience = the core URL)
 set -euo pipefail
-CORE="${BATONDECK_CORE_URL:-https://conductor-core-hn5syhhsja-el.a.run.app}"
+URL="${BATONDECK_MCP_URL:-${BATONDECK_CORE_URL:+${BATONDECK_CORE_URL%/}/mcp}}"
+URL="${URL:-https://mcp.batondeck.com/mcp}"
 
-if [ -n "${BATONDECK_TOKEN:-}" ]; then
-  TOKEN="${BATONDECK_TOKEN}"
-elif [ -n "${BATONDECK_AGENT_SA:-}" ]; then
-  TOKEN="$(gcloud auth print-identity-token --impersonate-service-account="${BATONDECK_AGENT_SA}" --audiences="${CORE}" --include-email)"
-else
-  TOKEN="$(gcloud auth print-identity-token --audiences="${CORE}")"
-fi
-[ -n "${TOKEN}" ] || { echo "batondeck: could not mint a token (check gcloud auth / BATONDECK_AGENT_SA)" >&2; exit 1; }
-
-args=("${CORE}/mcp" --header "Authorization: Bearer ${TOKEN}")
-[ -n "${BATONDECK_ON_BEHALF_OF:-}" ] && args+=(--header "x-batondeck-on-behalf-of: ${BATONDECK_ON_BEHALF_OF}")
+args=("${URL}")
+[ -n "${BATONDECK_TOKEN:-}" ] && args+=(--header "Authorization: Bearer ${BATONDECK_TOKEN}")
 
 exec npx -y mcp-remote "${args[@]}"
