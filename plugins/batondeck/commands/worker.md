@@ -62,7 +62,8 @@ The loop (repeat until taken off shift):
    that's how the previous agent's output reaches you), clear + ack `openFollowUps`, do the work,
    record as it goes (`add_context_item`, `write_memory`, `set_summary`), `heartbeat_task` on long
    work, then record what was produced (`add_artifact`, or `artifacts` on the completion —
-   `bash scripts/artifacts.sh [pr-url]` prints it) and `complete_task { leaseId, deliverable, artifacts? }`
+   `bash "${CLAUDE_PLUGIN_ROOT}/skills/batondeck-worker/scripts/artifacts.sh" [pr-url]` prints it) and
+   `complete_task { leaseId, deliverable, artifacts? }`
    (always a deliverable — it's the next ticket's input; a completion with no artifact is warned or, under
    `artifactPolicy:"enforce"`, rejected). On a reviewing board the response's `handover.reviewer`
    owns it from here — name them in the per-ticket terminal line, and never approve your own ticket. Dispatching also keeps THIS session's context small over a long shift. Trivial

@@ -28,7 +28,8 @@ Loop until your inbox is empty:
      (`add_context_item`, `write_memory`, `set_summary`), `heartbeat_task` before the lease expires —
      re-checking `openFollowUps` on each heartbeat and clearing any new directive — then
      record what you produced (`add_artifact { artifacts:[…] }`, or pass `artifacts` on the completion —
-     `bash scripts/artifacts.sh [pr-url]` prints it for the current checkout) and
+     `bash "${CLAUDE_PLUGIN_ROOT}/skills/batondeck-worker/scripts/artifacts.sh" [pr-url]` prints it for
+     the current checkout) and
      `complete_task { leaseId, deliverable, artifacts? }` (always pass a `deliverable`; a completion with no
      artifact is warned, or rejected under `artifactPolicy:"enforce"`). Completing auto-unblocks dependants;
      on a reviewing board say who `handover.reviewer` handed it to, and never approve your own ticket.

@@ -22,7 +22,8 @@ Work a BatonDeck board over MCP. Resolve blockers first, then run the loop:
    `heartbeat_task { leaseId }` before the lease expires. **Never leave the task thinner than you found it.**
 6. **Bind the evidence, then finish.** Before completing, record what you produced:
    `add_artifact { artifacts:[{kind:"pr",url}, {kind:"branch",ref}, …] }` — or pass the same array to
-   `complete_task`. `bash scripts/artifacts.sh [pr-url]` prints it for the current checkout (local git/hg
+   `complete_task`. `bash "${CLAUDE_PLUGIN_ROOT}/skills/batondeck-worker/scripts/artifacts.sh" [pr-url]`
+   prints it for the current checkout (local git/hg
    only, no auth). Then `complete_task { leaseId, deliverable, artifacts? }` (**always pass a `deliverable`**
    — it's what dependants build on via their upstream context), or `block_task` / `handoff_task`. A
    completion with no artifact comes back with a `warnings` entry, and is REJECTED on a project set to
