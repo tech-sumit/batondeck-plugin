@@ -1,7 +1,7 @@
 {
   "name": "batondeck",
   "description": "Autonomous agent toolkit for BatonDeck (MCP-native Kanban): plan dependency trees, claim + work tasks with full context, heartbeat leases, hand off, and drain boards with worker fleets. Includes the batondeck-worker skill, /batondeck:work and /batondeck:plan commands, Cursor rules, helper scripts, and the hosted BatonDeck MCP server (browser OAuth, no gcloud).",
-  "version": "1.2.8",
+  "version": "1.2.10",
   "author": {
     "name": "tech-sumit"
   }

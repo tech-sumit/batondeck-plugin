@@ -24,4 +24,12 @@ URL="${URL:-https://mcp.batondeck.com/mcp}"
 args=("${URL}")
 [ -n "${BATONDECK_TOKEN:-}" ] && args+=(--header "Authorization: Bearer ${BATONDECK_TOKEN}")
 
+# Stable per-agent id, so this client is addressable/revocable on its own rather than collapsing into
+# the owner's single `id:<identityId>` row. Injected as a LITERAL here on purpose: Cursor is reported
+# not to expand `${env:VAR}` inside `headers` for remote http/sse servers, and this stdio wrapper
+# sidesteps that question entirely. Empty (unpersistable state dir) → header omitted → old behaviour.
+aid="$("$(dirname "$0")/agent-id.sh" 2>/dev/null)"
+[ -n "${aid}" ] && args+=(--header "x-batondeck-agent-id: ${aid}")
+[ -n "${BATONDECK_AGENT:-}" ] && args+=(--header "x-batondeck-agent: ${BATONDECK_AGENT}")
+
 exec npx -y mcp-remote "${args[@]}"

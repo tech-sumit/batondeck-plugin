@@ -63,11 +63,17 @@ DIR="${BATONDECK_STATE_DIR:-$HOME/.batondeck}"; mkdir -p "${DIR}" 2>/dev/null ||
 # name floats on top). It is NOT a credential — the bearer identity stays the only security boundary.
 if [ -z "${BATONDECK_AGENT_ID:-}" ]; then
   AID_FILE="${DIR}/agent-id"
-  if [ -f "${AID_FILE}" ]; then
+  # `-s`, not `-f`: a ZERO-BYTE file must count as absent and be re-minted, not read as an empty id.
+  if [ -s "${AID_FILE}" ]; then
     BATONDECK_AGENT_ID="$(cat "${AID_FILE}")"
   else
     BATONDECK_AGENT_ID="$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')"
-    printf '%s' "${BATONDECK_AGENT_ID}" > "${AID_FILE}" 2>/dev/null || true
+    # TEMP FILE + rename, not create-then-write. `> "${AID_FILE}"` truncates first, so a process killed
+    # between open and write left a 0-byte agent-id behind — and plugin/scripts/agent-id.sh could not
+    # heal it (its noclobber create refuses to replace an existing file), so that client emitted no
+    # agent id ever again. rename(2) is atomic: the file is absent or complete, never empty.
+    { printf '%s' "${BATONDECK_AGENT_ID}" > "${AID_FILE}.$$" && mv -f "${AID_FILE}.$$" "${AID_FILE}"; } 2>/dev/null ||
+      rm -f "${AID_FILE}.$$" 2>/dev/null || true
   fi
 fi
 

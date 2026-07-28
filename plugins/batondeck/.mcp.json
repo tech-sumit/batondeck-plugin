@@ -2,7 +2,8 @@
   "mcpServers": {
     "batondeck": {
       "type": "http",
-      "url": "https://mcp.batondeck.com/mcp"
+      "url": "https://mcp.batondeck.com/mcp",
+      "headersHelper": "\"${CLAUDE_PLUGIN_ROOT}/scripts/agent-id.sh\" --headers"
     }
   }
 }

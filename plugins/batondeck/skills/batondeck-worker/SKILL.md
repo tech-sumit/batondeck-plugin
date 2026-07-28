@@ -245,12 +245,19 @@ scripts/mcp.sh next_task '{"projectId":"P-…","boardId":"B-…","assignee":"<yo
   `handoff_task`/`block_task` — don't silently drop it.
 - Your agent name is the one you present in the `x-batondeck-agent` header (the name humans see in the
   activity feed). Use that exact string as `assignee`.
-- **Stable id vs. name.** Presence is keyed by a STABLE id — the `x-batondeck-agent-id` header (the
-  bundled `mcp.sh` persists one under `~/.batondeck/agent-id` and reuses it). The NAME floats on top: change
-  `x-batondeck-agent` whenever you like and your single presence row is renamed **in place** — no
-  duplicate "ghost" row, even across token refreshes. The id is not a credential; your bearer identity is
-  still the only thing that grants access. Want a genuinely fresh session? Reset the id: `rm
-  ~/.batondeck/agent-id` (or set `BATONDECK_AGENT_ID`/`BATONDECK_AGENT`).
+- **Stable id vs. name.** Presence is keyed by a STABLE id — the `x-batondeck-agent-id` header. You get
+  one automatically: a UUID is generated ONCE into `~/.batondeck/agent-id` and presented on every
+  connect thereafter, by the plugin's MCP connection (`scripts/agent-id.sh`, wired as `headersHelper`
+  in `.mcp.json`) and by the bundled `mcp.sh` alike — both read that same file, so the two paths are
+  the same agent. The NAME floats on top: change `x-batondeck-agent` whenever you like and your single
+  presence row is renamed **in place** — no duplicate "ghost" row, even across token refreshes. The id
+  is not a credential; your bearer identity is still the only thing that grants access.
+- **Running several agents as one person?** Give each its own id, or they share one presence row and
+  one wake subscription. Either `export BATONDECK_AGENT_ID=<name>` per agent, or give each its own
+  `BATONDECK_STATE_DIR` and let it mint its own. Nothing about a client session is both unique *and*
+  stable across restarts, so this is the one thing you must say out loud.
+- **Rotate** (the only way back from a `disconnect_agent`, which is sticky): `rm ~/.batondeck/agent-id`
+  and restart your MCP client. The next connect mints a new id; the revoked one stays revoked.
 - **Show your tool's logo:** prefix that name with your tool — `claude-…`, `cursor-…`, `gemini-…`,
   `openai-`/`chatgpt-`/`codex-…`, or `mcp-…` — and the web app renders that tool's brand logo next to you
   everywhere (Agents list, presence, assignment menus). e.g. `x-batondeck-agent: claude-pr-bot`. Even
@@ -490,6 +497,43 @@ Bundled with this skill under `scripts/` (self-contained; configured by the env 
   persisted across runs). `watch.sh tasks '<{projectId,boardId}>' 'T-a,T-b|all' [max_sec] [interval]`
   is the polling fallback for cores without `wait_for_updates`. Writes a pidfile the plugin's Stop
   gate checks. The building block of the autonomous modes below.
+- `wake-listen.py [max_sec]` — **the wake channel's ear.** Blocks on this agent's Pub/Sub doorbell and
+  exits 0 the moment the board rings it. **Optional, and additive: it runs ALONGSIDE the waits above,
+  never instead of them** (see below).
+
+## The wake channel (optional): a push doorbell alongside the long-poll
+
+Everything above waits by ASKING the core (`wait_for_task` / `wait_for_updates` long-polls, ~0 reads
+while parked). Where a deployment enables the wake channel there is a second, push-shaped ear: the core
+gives each agent its own Pub/Sub subscription and rings it when work is routed to that agent.
+`scripts/wake-listen.py` is what pulls it.
+
+```bash
+scripts/wake-listen.py 3500 &      # background task; exits 0 the moment the doorbell rings
+```
+
+Four things to understand before you use it:
+
+- **It is ADDITIVE, never a replacement.** Keep waiting exactly as you do today; run the listener as a
+  *second* background task and act on whichever returns first. The long-poll remains the reliable path
+  — it is the core's only cross-instance fan-out — and the listener is the cheap one.
+- **The message tells you NOTHING, on purpose.** The doorbell is empty by contract: `agent` + `kind`
+  attributes, no body, no ids, no titles. So the only correct response to a wake is the response you
+  already run: **go and sweep through the core** (`next_task { assignee }`, then `list_tasks` across
+  `REVIEW` / `BLOCKED` / `DEAD_LETTER`), where authorization is enforced. The listener prints only
+  `{"wake":{"kind":…,"count":N}}` and stops.
+- **Exit codes match `watch.sh`:** `0` rang — sweep, then wait again · `3` deadline — just re-run ·
+  `4` **wake is not available here** (no token, no wake service, no subscription, revoked). On 4, stop
+  re-running it and rely on the long-poll alone; the reason is printed on stderr. Most deployments
+  answer 4 — the channel ships off — and that is fine: the worker behaves exactly as it does today.
+- **Auth mode:** it needs `BATONDECK_TOKEN`, the same requirement `watch.sh` has, so it works on the
+  **headless / bring-your-own-token path only**. On the plugin's browser-OAuth path the MCP token lives
+  inside the client and is invisible to Bash, so this exits 4 immediately — there loop the
+  `wait_for_updates` / `wait_for_task` MCP tools, as the box above already says.
+
+It presents your stable agent id (`x-batondeck-agent-id`) so it wakes for *your* subscription and not a
+sibling's, reads `BATONDECK_WAKE_URL` for the mint service, and writes the same pidfile `watch.sh` does
+so the plugin's Stop gate lets the session idle while it listens.
 
 ## Autonomous modes: worker & master
 
