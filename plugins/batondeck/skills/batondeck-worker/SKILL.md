@@ -232,12 +232,16 @@ scripts/mcp.sh next_task '{"projectId":"P-…","boardId":"B-…","assignee":"<yo
   - **`REVIEW` assigned to you** — this is real work, and the most commonly missed kind. Either it came
     back to you for rework (check `openFollowUps` via `get_task_context` and act on them, then `ack_follow_up`),
     or you are the reviewer: judge it and `move_task { toStatus: "DONE" }`, or send it back with
-    `add_follow_up { reopen: true }` naming the changes. Do **not** approve your own deliverable without
+    `add_follow_up { reopen: true }` naming the changes (both are **master**-gated — as a `worker` you can
+    still `add_comment` your verdict and escalate). Do **not** approve your own deliverable without
     actually re-checking it against the ticket's acceptance criteria.
   - **`BLOCKED` assigned to you** — read `blockedBy`. If the blocker is gone, the auto-unblock already
     fired; if it's stale or wrong, resolve it (`remove_dependency`) or `handoff_task` with a note.
-  - **`DEAD_LETTER` assigned to you** — a poisoned ticket. Fix the brief and `requeue_task`, or hand it to
-    a human; never leave it silently parked.
+  - **`DEAD_LETTER` assigned to you** — a poisoned ticket, and **you probably cannot requeue it yourself**:
+    `requeue_task` is **master**-gated on purpose, so a `worker` calling it gets
+    `FORBIDDEN: Requires master (have: worker)`. Quarantine exists to force escalation. Record what went
+    wrong on the ticket (`add_context_item { type: "note" }`) and escalate to a master or human; never
+    leave it silently parked. If you *are* a master, fix the brief and `requeue_task`.
 - On a hit: `claim_task` it and run the normal loop below. Assignment is **advisory** — the task is still
   claimable by others, so claim promptly; if you lose the race (`CONFLICT_LOCKED`), fetch the next.
 - If a ticket carries a **handoff note**, treat it as additional instructions. If you can't process a
@@ -274,6 +278,112 @@ a `REVIEW` ticket can unblock a `READY` one, and completing that can push anothe
 after every ticket and stop only when a full sweep across **all** statuses comes up empty. Then go back to
 waiting (below) — an empty board is a reason to wait, never a reason to end the shift.
 
+## Resumable lanes: never pay twice for the same work
+
+**You will run out of capacity mid-task.** Context limits, usage limits, a crashed process — a long
+ticket outliving one agent is normal, not exceptional. What decides whether that costs 10% or 100% is
+entirely **what you left behind**. An agent that burned 90% of a ticket and left nothing costs the
+next agent the other 100% — 190% for one task.
+
+BatonDeck already stores everything needed to resume. **This is a protocol, not a feature you enable.**
+
+### Resume: before you start, check whether the work already exists
+
+**Do this before you create a branch.** It is one call and it is the whole win:
+
+```
+get_task_context { projectId, taskId }        # artifacts + context items + summary, in one call
+```
+
+- **A `branch` artifact exists** ⇒ someone already worked this. `git fetch origin` then
+  **`git checkout <branch>`**. Do **not** branch fresh from `origin/main`.
+
+  > **`git reset --hard origin/main` is the instruction you must NOT follow here.** Nearly every lane
+  > brief, worktree recipe and setup snippet — including ones in this skill and in the repos it runs
+  > against — opens with `git fetch origin && git reset --hard origin/main`. That is correct **only
+  > for a genuine start.** On a resumed lane it silently destroys every commit your predecessor made,
+  > which is the exact failure this protocol exists to prevent. The habit is strong and the
+  > surrounding convention will not remind you, so the branch-artifact check has to come first and
+  > this rule has to beat it by name.
+- **Context items exist** ⇒ read them and continue from `NEXT`. Do not re-derive what `DONE` lists;
+  do not re-attempt what `REJECTED` lists — someone already paid for that dead end.
+- **Neither exists** ⇒ genuine start. Branch from a fresh `origin/main` as usual.
+
+### Checkpoint: the obligation while you work
+
+**Commit BEFORE the first expensive verification step** — before a mutation proof, a full gate run, an
+emulator suite, a long build. That is where agents burn the most budget and it is where they die, so
+the commit must come *before* it, not after. Also checkpoint at natural boundaries (a test goes
+green, a file is finished, a decision is made) — but do not rely on that alone: **"at a natural
+boundary" is a judgement that an agent under pressure resolves as "later"**, and later is how a lane
+dies with 400 uncommitted lines. The verification rule is concrete; use it.
+
+Three steps, in this order:
+
+1. **`git commit`.** WIP commits are expected and fine; the branch is the durable artifact. **An
+   uncommitted worktree is not a checkpoint** — it dies with the process and nobody but a human at
+   that machine can recover it.
+2. **`add_context_item { kind: "note", body }`** with four headings, in the order a successor needs
+   them:
+   - **DONE** — what is complete *and verified*, with the evidence (the passing test's name, the
+     command that went green, the commit sha you just made).
+   - **NEXT** — the immediate next action, concrete enough to execute without re-deriving the plan.
+   - **REJECTED** — approaches tried and abandoned, **with the reason**. This is the entry most
+     likely to be skipped, because writing down a dead end feels like recording failure. **It is the
+     highest-value line in the checkpoint** — it is the only thing that stops your successor spending
+     their budget re-walking the path you already proved does not work. Write it.
+   - **UNCERTAIN** — open questions, unverified assumptions, things you took on trust.
+3. **`set_summary { version, summary }`** — one paragraph, overwritten each time; the at-a-glance
+   state for whoever opens the board. This step is **version-checked**: if another agent or a human
+   touched the ticket while you worked you get `STALE` — re-read (`get_task`) and retry with the new
+   version. Never drop a checkpoint because its last step returned `STALE`.
+
+**The first checkpoint happens BEFORE substantive work**, recording the branch (`add_artifact
+{ kind: "branch" }`) and the plan. A lane that dies in its first ten minutes should still leave a
+successor more than nothing.
+
+**The test of a checkpoint is whether a successor can act on it without reading your transcript.**
+Write it to that bar and it will be concrete; write it as a status report and it will not be. A
+specimen, so the shape is not left to imagination:
+
+```
+DONE
+- Resume check + the four reset sites rewritten. Committed a1b2c3d.
+- `npm run skill:lint` green (output pasted in the ticket comment).
+NEXT
+- Regenerate the plugin skill: `npm run sync:skill`, then stage skill/ AND
+  plugin/skills/batondeck-worker/ in the SAME commit — pre-commit compares the index.
+REJECTED
+- A `checkpoint.sh` helper. Every primitive already ships; the gap is instruction-following,
+  not surface, and a script nobody calls is worse than a rule nobody forgets.
+- Recording the worktree path as an artifact — meaningless on another machine.
+UNCERTAIN
+- Whether the gate's `knip` step false-reds in a worktree. Unverified; re-run in the main checkout.
+```
+
+### Handoff: the obligation of an agent that can see it is stopping
+
+If you can tell you are about to stop — approaching a limit, blocked on something outside your
+control, out of scope — **do a final checkpoint and then `release_task { leaseId }`** (or
+`handoff_task { leaseId, toAgent, memoryNote }` if you know who should take it). A voluntary stop with
+a checkpoint is worth far more than an involuntary one mid-edit. The lease expires either way; only
+the checkpoint is up to you.
+
+### What goes on the ticket, and what does not
+
+| record | how |
+|---|---|
+| the branch | `add_artifact { kind: "branch", ref }` — **the** resume key |
+| the PR | `add_artifact { kind: "pr", url }` |
+| progress narrative | `add_context_item` (DONE / NEXT / REJECTED / UNCERTAIN) |
+| at-a-glance state | `set_summary` |
+
+**Do NOT record the worktree path as an artifact.** A path like
+`/Users/x/.claude/worktrees/agent-ab12` is meaningless on any other machine, and a successor that
+trusts it either fails or — worse — silently operates on a stale worktree from a dead run. **The
+branch is the portable identity of a lane; the worktree is a local detail.** If a local hint is
+genuinely useful, put it in a context item body where it reads as informational.
+
 ## Work a task (the loop)
 
 This is the loop you run per task — working directly, or after `next_task` / `/work-assigned` hands you
@@ -287,6 +397,9 @@ read once is not a thing you verify at the end.
 **Before you touch anything.** If a line fails, fixing it *is* the first piece of work — do not start.
 
 - [ ] You hold the **lease** (`claim_task` returned a `leaseId`) — "assigned to me" is not a claim.
+- [ ] **Checked for an existing `branch` artifact before creating one** (see **Resumable lanes**). If one
+      exists: `git fetch origin && git checkout <branch>` — never `reset --hard origin/main`, that
+      discards your predecessor's commits. Continue from the context items' `NEXT`.
 - [ ] `get_task_context { includeUpstream: true }` read **in full** — description, `field` items (what),
       `decision`/`note` items (why), dependencies, attachments, and the **upstream deliverables** you are
       meant to build on rather than re-derive.
@@ -473,8 +586,10 @@ To get more done at once, run **several agents/sessions in parallel** and prompt
   chains **shallow**.
 
 **Working the same repo from several agents?** The frontier says what *may* run; what actually bounds
-you is **file overlap**. Give each concurrent ticket its own git worktree (started from a fresh
-`git fetch && git reset --hard origin/main`), fence each ticket to a directory and say so in its brief,
+you is **file overlap**. Give each concurrent ticket its own git worktree — started from a fresh
+`git fetch && git reset --hard origin/main` **only if the ticket carries no `branch` artifact**; if it
+does, `git checkout` that branch instead and resume it (see **Resumable lanes**) —
+fence each ticket to a directory and say so in its brief,
 and sequence overlapping tickets with `add_dependency` rather than racing them. Critically: **a gate
 that passes inside a worktree proves nothing about the integration branch** — whoever merges re-runs it
 there, on the merge result. See `references/parallel-delivery.md` for the full method, including the

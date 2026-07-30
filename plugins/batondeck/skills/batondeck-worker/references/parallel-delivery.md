@@ -8,6 +8,24 @@ Everything here is learned behaviour. Each rule prevents a failure that actually
 
 ---
 
+## 0. Project setup: what a repo needs before lanes run against it
+
+Five prerequisites. The first is hard; the rest are the practice the rest of this file details.
+
+1. **Git is required.** No git, no branch, no resumability — a lane that cannot commit cannot be
+   resumed by anyone but a human sitting at that machine.
+2. **A remote is optional, but it changes the guarantee — say which you have.** *With* a remote,
+   pushed work survives the machine and any agent anywhere can `git fetch` and resume the lane.
+   *Without* one, resumability is **same-machine only**: still a large win over losing the work, but
+   do not describe it as more than it is. Either way the ticket stays auditable — `add_artifact`
+   takes commit shas and repo-relative paths when there is no forge URL to give.
+3. **One worktree per lane, fenced by directory.** What bounds concurrency is **file overlap, not
+   agent count** (§2).
+4. **Re-run the gate in the MAIN checkout, on the merge result.** A green gate inside a worktree
+   proves nothing about the integration branch (§3).
+5. **Remove worktrees once their branch merges.** They are full checkouts and they change how
+   repo-scanning tooling behaves (§1).
+
 ## 1. One isolated checkout per ticket
 
 Two agents editing one working tree will clobber each other — one `git checkout` or a stray
@@ -18,14 +36,27 @@ Two agents editing one working tree will clobber each other — one `git checkou
 git worktree add ../work-T-42 -b feat/t42-<slug> origin/main
 ```
 
-Start every worktree from a **fresh fetch**, not from whatever the parent checkout happens to be at:
+**First, check whether this lane already has work.** `get_task_context { projectId, taskId }` — if the
+ticket carries a **`branch` artifact**, a previous agent already worked it and the branch is where
+their commits live:
 
 ```
-git fetch origin && git reset --hard origin/main
+git fetch origin && git checkout <branch>        # RESUMING — continue from the ticket's NEXT
 ```
+
+**Only when there is no `branch` artifact** is this a genuine start, and only then do you reset:
+
+```
+git fetch origin && git reset --hard origin/main # STARTING — no predecessor to lose
+```
+
+Getting these two backwards is not a style question. `reset --hard origin/main` on a resumed lane
+**destroys every commit the predecessor made**, and it is the reflex the whole surrounding convention
+trains — this file said it unconditionally until 2026-07-29. Check for the artifact first, every time.
 
 Agent worktrees routinely start dozens of commits stale — including behind the very conventions the
-agent is about to be judged against.
+agent is about to be judged against. That is what the fresh fetch is for; it is not a reason to
+discard a predecessor's branch.
 
 **Clean them up when the branch merges.** Stale worktrees are not free: they are full checkouts, and
 tooling that scans upward or outward from the repo root (linters resolving a project config, type
