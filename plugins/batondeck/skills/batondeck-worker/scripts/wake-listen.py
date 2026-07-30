@@ -46,9 +46,10 @@ Env:
                          and mcp.sh use, so all three are the same agent). Never generated here.
     BATONDECK_WAKE_PROJECT  Overrides the PROJECT SEGMENT of the subscription path. Default: whatever
                          the mint's `subscription` names (the project NUMBER), or — against a mint
-                         older than T-95 — the number parsed out of the audience. Both forms were
-                         MEASURED returning 200 on a pull (T-95, `projects/453775273608` and
-                         `projects/batondeck-staging`), so this is an escape hatch, not a fix-up.
+                         older than T-95 — the number parsed out of the audience. Both the project
+                         NUMBER and the project ID were MEASURED returning 200 on a pull (T-95:
+                         `projects/<number>` and `projects/<project-id>` are equally accepted), so
+                         this is an escape hatch, not a fix-up.
     BATONDECK_STATE_DIR  pidfile + agent-id location (default ~/.batondeck)
     BATONDECK_STS_URL / PUBSUB_EMULATOR_HOST   test hooks; see the integration suite.
 
