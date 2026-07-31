@@ -79,4 +79,10 @@ A **run** is a normal claimable child task linked to its parent by `runOf` (dist
 Reused unchanged for the actual work inside a run: `claim_task`/`claim_next`, `heartbeat_task`, `release_task`, `complete_task` (sets the run's `deliverable`), `get_task_context`.
 
 ## Resources (subscribe for live updates)
-- `conductor://{projectId}/board/{boardId}` · `.../task/{taskId}` · `.../task/{taskId}/context` · `.../board/{boardId}/feed`
+- `batondeck://{projectId}/board/{boardId}` · `.../task/{taskId}` · `.../task/{taskId}/context` · `.../board/{boardId}/feed`
+  <!-- The core still accepts the pre-rename scheme (T-97 dual-accept), so nothing breaks either way.
+       This line was the last place that TAUGHT it, which is why it blocked the cleanup: every new
+       worker that adopted it kept T-104's drop condition ("zero legacy reads in a real log window")
+       asymptotically above zero forever. The literal is deliberately not written here, so this file
+       stays clean for the name guard. Generated copy in plugin/ — never hand-edit it. -->
+
