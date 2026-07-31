@@ -80,7 +80,8 @@ convenience for direct shell calls **once you already hold a token** — they mi
 with instructions when `BATONDECK_TOKEN` is unset. You must be a member of a project
 (`add_member { projectId, identityId, role: "master" }` to plan AND work; `"worker"` for a fleet
 member that only pulls, does and reports — it cannot create work or move someone else's task). Discover
-work with `list_projects` → `list_boards`.
+work with `list_projects` → `list_boards`, then **pick ONE board and stay on it** — moving to another
+board mid-session needs the user's go-ahead (see *Rules*).
 
 **Calling tools.** If you have a native MCP client, invoke the tools directly. From a shell (or any
 non-MCP runtime) use the bundled caller — **every `tool { … }` call in this skill maps to
@@ -713,6 +714,18 @@ hands QA the dev's deliverable as input — no orchestrator in the data path.
 - **Never work a blocked task directly** — resolve its blocker chain first (above).
 - **Never leave a thin task** — populate it (description, acceptance criteria, refs, deps, designs)
   before you move on. The board is only as useful as its tasks are complete.
+- **One shift, one board — never switch boards on your own. Ask the user, and checkpoint before you go.**
+  Once you are operating on a board, every call that *does* something — `next_task`, `claim_task`,
+  `claim_next`, `wait_for_task`, `wait_for_updates`, `create_task`, `move_task`, `complete_task` — carries
+  the same `boardId` for the rest of the session. If the work looks like it lives on a different board,
+  **stop and ask**; a board hop is the user's call, not a judgement you make to keep busy. Two carve-outs,
+  so the rule does not make you blind: **read-only discovery is always fine** (`list_projects`,
+  `list_boards`, `get_task`, `list_tasks`, `search_tasks` — look wherever you like), and **a board the user
+  named is already permitted** — being told "work board B" is the go-ahead, not a switch to ask about.
+  When the user does say switch: **checkpoint the lane you are leaving first** — `add_context_item` as
+  DONE / NEXT, `set_summary`, and `release_task` if you hold a lease. Asking is what stops the jump; the
+  checkpoint is what stops the context loss. Hopping with a live lease and no summary orphans the ticket
+  behind you and the next agent pays for that work twice.
 
 ## Prompts
 
