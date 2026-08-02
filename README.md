@@ -7,8 +7,11 @@ The one-step install that wires Claude Code to BatonDeck. It ships:
 - **Skill** — `batondeck-worker` (at `plugins/batondeck/skills/batondeck-worker/`): how to plan a board and
   work the loop (`claim → context → deliverable → auto-unblock`).
 - **Commands** — `/batondeck:plan`, `/batondeck:work`, `/batondeck:work-assigned`, `/batondeck:runs`
-  (race a task across N agents and pick the winner), and the autonomous modes:
-  `/batondeck:worker`, `/batondeck:master`, `/batondeck:off`.
+  (race a task across N agents and pick the winner), `/batondeck:release-audit`, and the autonomous
+  modes: `/batondeck:worker`, `/batondeck:master`, `/batondeck:off`.
+- **Agent** — `release-auditor`: audits the delta between the last release and `main`, runs the
+  repository's own gate, and files each gap onto a board as a ticket (`release-audit` label) with a
+  GO / GO WITH FIXES / NO-GO verdict. Reads and reports; never edits code.
 - **Hooks** — three, listed in full below: `SessionStart`, `SessionEnd`, and a session-scoped **Stop
   gate** that keeps worker/master sessions on shift.
 
