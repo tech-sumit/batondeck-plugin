@@ -1,6 +1,6 @@
 ---
 name: batondeck-worker
-description: Plan and work a BatonDeck Kanban board as an agent over MCP. Decompose goals into a richly-detailed dependency tree on the board, populate every task as a complete self-contained brief, resolve blockers depth-first (work what unblocks the most, in order), carry each task's context/memory/dependencies/attachments before acting, act on follow-ups (directives aimed at the holder — read openFollowUps after claim + per heartbeat, then ack; honor task.reopened by re-claiming), and pick up the tickets the board assigns to you (pull-based, prompt-driven) — the dependency tree gates parallel vs sequential automatically, completing a task auto-unblocks more, and you can run several agents concurrently alongside other agents and humans. For high-stakes/ambiguous work a lead can race a task across N agents (start_runs → list_runs → pick_run) while workers treat each run as a normal claimable task. Supports standing autonomous roles — worker mode (wait for assignments → claim → work → complete → wait again) and master mode (plan/assign the goal onto the board, then supervise — judge REVIEW deliverables, unblock, reassign, requeue — and work tickets itself) — armed via the plugin's /batondeck:worker and /batondeck:master commands, kept on shift by its Stop gate, ended with /batondeck:off. Includes shell/Python helper scripts (token, one-shot MCP caller, dependency-tree seeder, blocking watcher).
+description: Plan and work a BatonDeck Kanban board as an agent over MCP. Decompose goals into a richly-detailed dependency tree on the board, populate every task as a complete self-contained brief, plan durable objectives as sprints (agent proposes, human approves, admin activates — members latch in BACKLOG until then) and cold-resume from get_sprint (goal, frontier, attention, cursor), resolve blockers depth-first (work what unblocks the most, in order), carry each task's context/memory/dependencies/attachments before acting, act on follow-ups (directives aimed at the holder — read openFollowUps after claim + per heartbeat, then ack; honor task.reopened by re-claiming), and pick up the tickets the board assigns to you (pull-based, prompt-driven) — the dependency tree gates parallel vs sequential automatically, completing a task auto-unblocks more, and you can run several agents concurrently alongside other agents and humans. For high-stakes/ambiguous work a lead can race a task across N agents (start_runs → list_runs → pick_run) while workers treat each run as a normal claimable task. Supports standing autonomous roles — worker mode (wait for assignments → claim → work → complete → wait again) and master mode (plan/assign the goal onto the board, then supervise — judge REVIEW deliverables, unblock, reassign, requeue — and work tickets itself) — armed via the plugin's /batondeck:worker and /batondeck:master commands, kept on shift by its Stop gate, ended with /batondeck:off. Includes shell/Python helper scripts (token, one-shot MCP caller, dependency-tree seeder, blocking watcher).
 ---
 
 # BatonDeck Worker
@@ -118,7 +118,9 @@ When you turn a goal or spec into work, do **not** create a flat list — create
    `move_task { toStatus: "READY" }` **every** task, not just the leaves. This is safe for still-blocked
    tasks too: a READY task with a non-empty `blockedBy` is excluded from selection until auto-unblock
    empties it (then it becomes eligible with no further move). Leaves are workable immediately; blocked
-   tasks **auto-unblock** as their blockers reach DONE.
+   tasks **auto-unblock** as their blockers reach DONE. (**Sprint members are the one exception** — a
+   proposed sprint's members stay BACKLOG deliberately until a human approves and the sprint is
+   activated; see *Sprints* below.)
 5. Set `priority` and `requiredCapabilities` so `next_task` surfaces the most important workable task
    for the right agent.
 
@@ -144,6 +146,65 @@ scripts/seed-tasknet.py plan.json     # projectId/boardId from the plan or $BATO
 
 Build it incrementally instead (when iterating) with `add_subtask` / `add_dependency` via your client
 or `scripts/mcp.sh`.
+
+## Sprints: a durable objective over the plan (propose → human approves → activate)
+
+A **sprint** is a named cross-ticket objective that survives context compaction and session loss —
+the thing a fresh session anchors on to resume. When the goal is such an objective (a feature of n
+steps, a phase, a cleanup drive), wrap the plan in one. Sprints are agent-proposed and
+**human-approved**; the flow below is how a plan ends, built from primitives you already know:
+
+1. **Propose — step 0 of the plan.** `create_sprint { projectId, boardId, name, goal, acceptance }`
+   → a `PROPOSED` sprint (`S-…`). `goal` is the objective prose; `acceptance` is how "sprint done"
+   will be judged when it closes.
+2. **Create members with the sprint stamped, and leave them in BACKLOG.** Per ticket,
+   `create_task { …, sprintId: "S-…" }`; wire dependencies as usual — but **skip the mandatory READY
+   promotion (Plan step 4) for sprint members**: under a proposed sprint, BACKLOG is the approval
+   latch. Members are structurally unclaimable until a human signs off, and that is the point.
+3. **The proposal task is how the plan flow ends.** Create one normal ticket — "Sprint plan:
+   <name>" — with `customFields: { sprintProposalFor: "S-…" }`. It is **not** a sprint member (no
+   `sprintId` — it would pollute the counts). Bind it to the sprint with
+   `update_sprint { projectId, sprintId, version, patch: { proposalTaskId } }` (legal only while
+   PROPOSED), then move it READY, claim it, and complete it with the **full plan as its
+   `deliverable`** → it lands in REVIEW, assigned to the human reviewer through the existing
+   notification path.
+4. **Human sign-off.** The human approves in the web app (REVIEW → DONE), or rejects with
+   `add_follow_up { reopen: true }` — revise the plan, re-complete. Rejection is the normal
+   correction loop, not a failure.
+5. **Activate — admin only.** `update_sprint { patch: { status: "ACTIVE" } }`. The server refuses
+   unless the bound proposal task is DONE **and** its `sprintProposalFor` names this sprint, and the
+   transition is admin-gated — the proposing master cannot activate. Under
+   `selfApprovalPolicy: "enforce"` a creator-activator is rejected outright; **sprint-using projects
+   should set exactly that** (`update_settings { projectId, selfApprovalPolicy: "enforce" }`) — the
+   default `warn` only records a self-approval, and a warning is not a control.
+6. **Promote.** After activation, bulk `move_task { toStatus: "READY" }` every member — the normal
+   promotion rule resumes from here (still-blocked members wait on auto-unblock as usual).
+
+**Cold resume — two bounded calls.** A fresh session (or one that lost its context mid-objective)
+does not start from the task list:
+
+```
+list_sprints { projectId, boardId, status: "ACTIVE" }   # is there an active sprint?
+get_sprint   { projectId, sprintId }                    # the whole objective in one read
+```
+
+`get_sprint` returns the goal + acceptance, the sprint-level `checkpoint`
+(DONE/NEXT/REJECTED/UNCERTAIN, written by the supervising master), exact status `counts`, the
+**`frontier`** (READY ∧ deps clear ∧ unclaimed — what to claim next), **`attention`** (REVIEW /
+BLOCKED / dead-letter / stale-lease members that need a decision), your own caller-lane `resume`
+states (branch + lastCheckpoint, so no predecessor's commits get reset away), and the `eventCursor`
+a supervising master left off at.
+
+**Work sprint-scoped while one is ACTIVE:** pass `sprintId` to selection —
+`claim_next { projectId, boardId, sprintId }` (same field on `next_task` / `wait_for_task` /
+`list_tasks` / `rank_tasks`) — so your work stays inside the objective. Every claim response carries
+`sprint: { id, name, goal, status } | null` alongside `resume`; read it back as your standing
+orientation.
+
+**Seeder shortcut:** `seed-tasknet.py` does the propose steps in one shot — add a top-level
+`"sprint"` block (`name`, `goal`, `acceptance`) to the plan JSON and it creates the sprint first,
+stamps every member's `sprintId`, leaves members in BACKLOG, and emits + completes the proposal task
+(plan as deliverable, `sprintProposalFor` bound). Without the block it behaves exactly as before.
 
 ## Populate every task (mandatory)
 
@@ -418,6 +479,9 @@ read once is not a thing you verify at the end.
 
 **Before you touch anything.** If a line fails, fixing it *is* the first piece of work — do not start.
 
+- [ ] **Is there an active sprint? `get_sprint` first — it names the goal, the frontier, and the
+      ticket you should be in.** A cold session runs this before everything, even the resume check
+      below (`list_sprints { projectId, boardId, status: "ACTIVE" }` finds it; see **Sprints**).
 - [ ] You hold the **lease** (`claim_task` returned a `leaseId`) — "assigned to me" is not a claim.
 - [ ] **Checked for an existing `branch` artifact before creating one** (see **Resumable lanes**). If one
       exists: `git fetch origin && git checkout <branch>` — never `reset --hard origin/main`, that
@@ -436,6 +500,9 @@ read once is not a thing you verify at the end.
 
 **Before you complete.** Every line is evidence someone else can re-check — that is the point of it.
 
+- [ ] **Is there an active sprint? `get_sprint` first — it names the goal, the frontier, and the
+      ticket you should be in.** Especially after a compaction or session boundary mid-ticket: your
+      completion should advance the sprint's goal, and `attention`/`frontier` tell you what it unblocks.
 - [ ] Each acceptance criterion met, **named individually**. "Done" is not a criterion.
 - [ ] Any guard/check you wrote has been **watched failing** — break the thing it guards, confirm it goes
       red, paste that failure. A green check you have never seen red proves it ran, not that it works.
@@ -604,7 +671,8 @@ To get more done at once, run **several agents/sessions in parallel** and prompt
   `claim_next` per loop instead of `next_task`+`claim_task` — collisions stop growing with fleet size.
   Optional `shard:{index,count}` stripes the frontier into disjoint lanes (give each worker a distinct
   `index`; empty lanes fall back to the whole frontier); `maxConcurrency` caps how many tasks one agent
-  may hold at once (→ `RATE_LIMITED`) so a greedy worker can't starve the fleet.
+  may hold at once (→ `RATE_LIMITED`) so a greedy worker can't starve the fleet. **When a sprint is
+  ACTIVE, pass `sprintId` too** — selection then stays inside the objective (see **Sprints**).
 - **Completing a task opens doors** — when a task reaches DONE the server **auto-unblocks** its dependants
   (BLOCKED/blocked → READY), widening the frontier; the next `next_task` from any idle agent picks the new
   tasks up. So independent leaves run **in parallel** and dependents run **in sequence** after their
@@ -724,7 +792,11 @@ the same loops prompt-driven.
   `move_task { toStatus: "DONE" }`, or request changes via `add_follow_up { reopen: true }`);
   `BLOCKED` → resolve/reassign; `DEAD_LETTER` → fix the brief + `requeue_task`; quiet board → health
   pass (`reap_stale_leases`, `rank_tasks`, optionally work a leaf yourself). Fold discoveries back
-  into the board; when the goal is DONE, report and go off shift.
+  into the board; when the goal is DONE, report and go off shift. **Supervising a sprint?** Persist
+  your position on the sprint doc after each handled batch —
+  `update_sprint { patch: { eventCursor, checkpoint? } }`; on `STALE`, re-read (`get_sprint`), keep
+  the **max** of your cursor and the stored one, and retry — never drop the checkpoint because its
+  write lost a race.
 
 The scrum chain is emergent: dev completes → `deliverable` stored → auto-unblock flips the dependent
 QA ticket READY → the QA agent's parked wait wakes with it → `get_task_context { includeUpstream }`

@@ -23,6 +23,13 @@ Setup:
      design/review → opus-class + high effort).
    - `requiredCapabilities` so profile matching (`useProfile`) routes correctly.
    Then `move_task` everything to READY.
+   **Wrap the plan in a sprint** when the goal is a durable objective (the normal case for a
+   master's shift): `/batondeck:plan` step 0 — `create_sprint`, members created with `sprintId` and
+   **left in BACKLOG**, the proposal task completed with the plan as deliverable → REVIEW → human
+   approves → an admin activates → THEN promote members to READY (the "move everything to READY"
+   line above applies to sprint members only after activation). On a sprint-using project, set the
+   approval gates to hard controls first: `update_settings { projectId, selfApprovalPolicy: "enforce" }`
+   — the default `warn` merely records a self-approval, and a warning is not a control.
 3. **Arm the mode:** run `"${CLAUDE_PLUGIN_ROOT}/scripts/mode.sh" master "P-… B-… goal=<short goal>"`.
 
 Supervision loop (repeat until the goal is shipped):
@@ -32,8 +39,9 @@ Supervision loop (repeat until the goal is shipped):
 
    **(a) Plugin / browser OAuth — the default, and the only one that works here.** Call the
    **`wait_for_updates` MCP tool** in a loop: `wait_for_updates { projectId, boardId, sinceCursor?,
-   timeoutSec: 50 }`. The first call without `sinceCursor` returns the current cursor immediately;
-   carry that cursor forward and call again. It blocks SERVER-SIDE (~0 Firestore reads while parked)
+   timeoutSec: 50 }`. Supervising a sprint? Resume from the sprint's stored `eventCursor`
+   (`get_sprint` returns it) rather than starting blind. Otherwise the first call without
+   `sinceCursor` returns the current cursor immediately; carry that cursor forward and call again. It blocks SERVER-SIDE (~0 Firestore reads while parked)
    and returns `{events: []}` with the cursor unchanged when the deadline passes.
 
    **Do NOT reach for `scripts/watch.sh` on this path.** It shells out to `mcp.sh`, which needs
@@ -64,9 +72,17 @@ Supervision loop (repeat until the goal is shipped):
    - `BLOCKED` → read the reason; resolve it (add the missing dependency/answer as a follow-up,
      reassign, or do it yourself).
    - `DEAD_LETTER` → diagnose, fix the brief (it was probably underspecified), `requeue_task`.
-3. **Keep planning:** fold discoveries back into the board — new tasks (with assignee + modelHint),
+3. **Persist the sprint checkpoint (when supervising one) — after the batch is handled, not before.**
+   `update_sprint { projectId, sprintId, version, patch: { eventCursor: <latest handled ts>, checkpoint? } }`
+   — the cursor is the resume anchor the next master (or your own next session) reads back from
+   `get_sprint`; `checkpoint` is the sprint-level DONE/NEXT/REJECTED/UNCERTAIN. On `STALE`
+   (another master wrote first): re-read via `get_sprint`, keep the **MAX** of your cursor and the
+   stored one, and retry — **never drop the checkpoint** because its write lost a race.
+4. **Keep planning:** fold discoveries back into the board — new tasks (with assignee + modelHint),
    new edges, follow-up directives to current holders. The board stays the single source of truth.
-4. **Goal fully DONE** → post a final summary (what shipped, deliverables, loose ends), then run
+5. **Goal fully DONE** → post a final summary (what shipped, deliverables, loose ends) — for a
+   sprint, close it: `update_sprint { patch: { status: "CLOSED" } }` (non-terminal members produce a
+   warning, not a refusal — descoping at close is a judgment call) — then run
    `"${CLAUDE_PLUGIN_ROOT}/scripts/mode.sh" off` and stop.
 
 High-stakes or ambiguous ticket? Race it instead of betting on one attempt — `/batondeck:runs`

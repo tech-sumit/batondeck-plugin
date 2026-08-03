@@ -21,6 +21,13 @@ Setup (once):
 
 The loop (repeat until taken off shift):
 
+**First, on a cold session: is there an active sprint? `get_sprint` first — it names the goal, the
+frontier, and the ticket you should be in.** (`list_sprints { projectId, boardId, status: "ACTIVE" }`
+finds it; the batondeck-worker skill's *Sprints* section is the full flow.) While a sprint is
+ACTIVE, stay inside the objective: pass `sprintId` to `wait_for_task` / `claim_next` / `next_task`
+throughout this loop — every claim response then carries `sprint: { id, name, goal, status }` as
+your standing orientation.
+
 0. **Sweep your inbox BEFORE waiting.** `next_task { assignee }` covers READY only — and so do
    `claim_next` and `watch.sh work`. A ticket assigned to you sitting in **`REVIEW`** (rework, or yours
    to judge), `BLOCKED`, or `DEAD_LETTER` is invisible to all of them, so a null `next_task` means
