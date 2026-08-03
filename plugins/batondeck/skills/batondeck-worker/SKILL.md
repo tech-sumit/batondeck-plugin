@@ -376,8 +376,29 @@ the checkpoint is up to you.
 |---|---|
 | the branch | `add_artifact { kind: "branch", ref }` — **the** resume key |
 | the PR | `add_artifact { kind: "pr", url }` |
+| **who wrote it** | **`Agent: <your-name>` on its own line in the PR description** — see below |
 | progress narrative | `add_context_item` (DONE / NEXT / REJECTED / UNCERTAIN) |
 | at-a-glance state | `set_summary` |
+
+**Sign your PR.** Put a line in the PR description, on its own, exactly:
+
+```
+Agent: <your-name>
+```
+
+**You do not have to invent that name — you are told it.** `claim_task` returns it as `claim.agent`,
+and it is the *same string* the board routes assignments by, so a signature that matches it can be
+handed straight back to you.
+
+This exists because of what happens *after* the merge. A reviewer auditing a release can always name
+the PR a defect came from; without this line it cannot name the **agent**, so the finding is filed as
+an unowned ticket and the one worker holding the context never hears about it. With the line, the
+finding is assigned back to you with a comment, and you pick it up through the same
+`wait_for_task { assignee }` loop you already run. One line in a PR body is the whole mechanism.
+
+Sign the PR even when you did the work under someone else's direction, and even when the branch is a
+resume of another agent's lane — the signature answers "who can be asked about this code now", which
+is you. If a previous agent's signature is already in the description, add yours; do not replace it.
 
 **Do NOT record the worktree path as an artifact.** A path like
 `/Users/x/.claude/worktrees/agent-ab12` is meaningless on any other machine, and a successor that
@@ -475,6 +496,10 @@ read once is not a thing you verify at the end.
      Shell: `` bash scripts/artifacts.sh [pr-url] `` prints the exact `artifacts` array for the current
      checkout (branch, head commit, forge URLs, and the PR if `gh`/`glab` can tell it). It reads only
      local git/hg — **no BatonDeck auth needed**, so it works under browser OAuth too.
+   - **And sign the PR: `Agent: <your-name>` on its own line in its description** (your name is
+     `claim.agent` from your claim response — see *What goes on the ticket*). The artifact links the
+     ticket to the PR; the signature links the PR back to *you*, which is what lets a later release
+     audit assign its findings to the agent that has the context instead of to nobody.
    - Done → `complete_task { leaseId, deliverable, artifacts? }`. **Always pass `deliverable`** — a concise
      statement of the work product (a result/summary, or a link/path; large files travel as attachments) so
      the tasks you just unblocked can build on it via their `includeUpstream` context. It's stored on the
