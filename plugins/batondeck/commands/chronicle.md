@@ -8,6 +8,13 @@ artifacts — but it is per-ticket and write-only, and nobody reads 160 tickets 
 work this way?". The sweep lays that evidence out as decision records and cites every paragraph back
 to the ticket it came from.
 
+> **PRECONDITION: run this from a checkout of the BatonDeck repo.** The deterministic half of the
+> sweep is `scripts/chronicle/sweep.py`, which lives in that repo and is deliberately NOT shipped in
+> the plugin — it is owned and tested where it lives, and a second copy would drift from it. From any
+> other repo, step 4 stops with a message naming the path it could not find. It fails cleanly rather
+> than producing a partial record, but it does fail, so check before you start rather than after
+> gathering evidence for 160 tickets.
+
 Inputs: $ARGUMENTS — optionally the project/board. Missing → discover with `list_projects` →
 `list_boards`. Manual by design: this is not scheduled, and it runs as **you**, in this session,
 because there is no headless path to the core.

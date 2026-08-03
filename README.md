@@ -6,9 +6,19 @@ The one-step install that wires Claude Code to BatonDeck. It ships:
   tokens to paste).
 - **Skill** — `batondeck-worker` (at `plugins/batondeck/skills/batondeck-worker/`): how to plan a board and
   work the loop (`claim → context → deliverable → auto-unblock`).
+- **Skill** — `batondeck-chronicle` (at `plugins/batondeck/skills/batondeck-chronicle/`): how
+  to derive decision records from finished tickets — what evidence a record may rest on, and how to
+  state what it could not see.
 - **Commands** — `/batondeck:plan`, `/batondeck:work`, `/batondeck:work-assigned`, `/batondeck:runs`
-  (race a task across N agents and pick the winner), `/batondeck:release-audit`, and the autonomous
-  modes: `/batondeck:worker`, `/batondeck:master`, `/batondeck:off`.
+  (race a task across N agents and pick the winner), `/batondeck:chronicle` (sweep finished tickets
+  into decision records), `/batondeck:release-audit`, and the autonomous modes: `/batondeck:worker`,
+  `/batondeck:master`, `/batondeck:off`.
+
+  > **`/batondeck:chronicle` only runs inside a checkout of the BatonDeck repo itself.** Its
+  > deterministic half is `scripts/chronicle/sweep.py`, which lives in that repo and is not shipped in
+  > this package — the script is owned and tested where it lives, and shipping a second copy would
+  > give you two that drift. Run from anywhere else and it stops with a message naming the missing
+  > path rather than producing a partial record. Every other command in this list works in any repo.
 - **Agent** — `release-auditor`: audits the delta between the last release and `main`, runs the
   repository's own gate, and files each gap onto a board as a ticket (`release-audit` label) with a
   GO / GO WITH FIXES / NO-GO verdict. Reads and reports; never edits code.
