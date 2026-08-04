@@ -1,6 +1,6 @@
 ---
 name: batondeck-chronicle
-description: Sweep a BatonDeck board's finished tickets into Chronicle decision records. Reads a durable project-memory cursor, takes the window of task.completed / task.reopened / task.requeued / task.moved-into-DONE events since it, pulls each ticket's composed context over MCP, pipes the batch through the repo's deterministic sweep script, ingests the resulting pages with ingest_chronicle_page, and advances the cursor only after the ingest succeeds — so a sweep that dies mid-flight is re-derived on the next run instead of losing tickets. Forge (GitHub) review threads are best-effort enrichment that never blocks a sweep, and every record declares which evidence it actually had. Invoked by the plugin's /batondeck:chronicle command.
+description: Sweep a BatonDeck board's finished tickets into Chronicle decision records — both tiers. Reads a durable project-memory cursor, takes the window of task.completed / task.reopened / task.requeued / task.moved-into-DONE events since it, pulls each ticket's composed context over MCP, pipes the batch through the repo's deterministic emitter (which writes docs/chronicle/adr/NNNN-*.md, stamps superseded_by, and regenerates the topics/index mechanical regions), ingests the resulting pages with ingest_chronicle_page (sourcePath filled), raises ONE docs PR for the batch, and advances the cursor only after the ingest succeeded AND the PR is raised — so a sweep that dies mid-flight is re-derived on the next run instead of losing tickets. Forge (GitHub) review threads are best-effort enrichment that never blocks a sweep, and every record declares which evidence it actually had. Invoked by the plugin's /batondeck:chronicle command.
 ---
 
 # BatonDeck Chronicle
@@ -175,6 +175,20 @@ that is the honest outcome and the script keeps it uncited. This is a handful of
 window, not a board listing; cap it at the mentions you actually saw. A malformed map is refused with
 a `ValueError` rather than guessed at.
 
+**Three more per-task keys, read by the EMITTER (step 4) — all optional, all yours to supply:**
+
+- `topics: ["wake"]` — the record's topic slugs. Must be slugs or aliases already in
+  `docs/chronicle/index.md`'s `topic_registry`; omitted, the emitter uses the ticket's `labels` that
+  match the registry. Nothing resolves → it REFUSES rather than coining a slug (a new topic is added
+  to the registry explicitly, in the same docs PR — never silently).
+- `supersedes: ["ADR-0031"]` — declare that this record supersedes an existing one (a reopen after
+  DONE is the usual signal). The emitter writes the forward edge and stamps `superseded_by` onto the
+  old file — one frontmatter field, no prose (§6.1's single permitted mutation). Detection is YOUR
+  judgment, made reading `docs/chronicle/adr/` — the emitter only validates the target exists.
+- `unverified: true` on an artifact entry — for provenance you KNOW is unresolvable (a forge this
+  checkout has no remote for). `chronicle:check` guard 1 refuses what it can positively contradict
+  unless this is set; set it in the payload, never by editing the generated file.
+
 This page used to instruct a rename to `contextItems`, because the script read that key and a payload
 carrying `items` produced a record whose coverage line said *"Not found on the ticket: rejected
 alternatives"* about a ticket that plainly carried them — asserting an absence nobody ever checked,
@@ -194,15 +208,35 @@ A ticket with neither a description nor a deliverable carries no evidence and th
 that is the mechanism behind "a completed non-decision ticket produces no record", so do not paper
 over an empty ticket by writing prose for it.
 
-### 4. Compose (deterministic — do not do this yourself)
+### 4. Compose and emit (deterministic — do not do this yourself)
+
+You are standing in a checkout of the documented repo (the command's precondition), so run the
+emitter — it performs the sweep composition AND writes the repo tier:
 
 ```
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/chronicle.sh" sweep < window.json > pages.json
+python3 scripts/chronicle/emit.py < window.json > pages.json
 ```
 
-Out comes one `ingest_chronicle_page` payload per ticket: `kind`, `slug`, `title`, `blocks[]`, each
-block carrying its citations (the full `projectId/boardId/taskId` triple — never a bare `T-52`, which
-is not unique even within one project) and an `origin.blockHash`.
+That writes, into the checkout: one `docs/chronicle/adr/NNNN-<slug>.md` per new record (append-only;
+`ADR-NNNN` allocated max(existing)+1 from the filesystem), the `superseded_by` stamp on anything a
+new record supersedes, and the regenerated MECHANICAL regions of `topics/*.md` + `index.md` (counts
+and tables only — the narrative headers and the topic registry are authored and untouched). A ticket
+whose triple already appears in some record's `tasks:` is skipped, so a re-run mints no duplicates.
+Then prove it: `python3 scripts/chronicle/check.py` must be green before the files go anywhere.
+
+**Identity, so nothing forks (decided on T-300):** the hosted page slug stays `adr/<task-id>` —
+`ADR-NNNN` names the repo FILE, never the page. The two are bound by `sourcePath` on the payload
+(pointing at the file) and the `tasks:` triple in the file (pointing at the ticket). Anything that
+later ingests from the merged files (CH-20) must derive the slug from the triple, not the filename.
+
+On stdout comes one `ingest_chronicle_page` payload per ticket — `kind`, `slug`, `title`,
+`sourcePath`, `blocks[]`, each block carrying its citations (the full `projectId/boardId/taskId`
+triple — never a bare `T-52`, which is not unique even within one project) and an `origin.blockHash`.
+
+*Fallback:* a checkout that predates the emitter still has the plugin wrapper —
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/chronicle.sh" sweep < window.json > pages.json` composes the
+same payloads hosted-only (no files, no `sourcePath`). On that path there is no docs PR, step 7 is
+skipped, and the OLD cursor rule applies: advance after the ingest alone.
 
 **Write nothing into those blocks by hand.** Their ids are section-scoped (`ctx1/2`, `dec1/1`, `rej1/1`
 — a fixed key per section the script emits, then ordinals only *within* that section) so that the
@@ -235,34 +269,62 @@ in your report — do not edit that line into the blocks, because the blocks are
 Per page, adding the `projectId` the script does not carry:
 
 ```
-ingest_chronicle_page { projectId, kind, slug, title, blocks }
+ingest_chronicle_page { projectId, kind, slug, title, sourcePath, blocks }
 ```
 
 First sight creates the page. A re-ingest **merges**: unchanged blocks take the new derivation,
 human-edited blocks are kept, and blocks changed on both sides come back as `conflicts` for a human to
 land. Re-ingesting an unchanged record writes no version at all. Report any `conflicts` — do not try
-to resolve them, that is the human's call by design.
+to resolve them, that is the human's call by design. `sourcePath` (from the emitter's stdout) is
+refreshed on an existing page, so the hosted page always cites the repo file that carries its record.
 
-### 7. Advance the cursor — only now, only on success
+### 7. Raise ONE docs PR for the batch
+
+The emitter wrote files and touched no git — **the procedure owns git**, so a human can preview a bad
+record before it becomes a PR. Stage `docs/chronicle` and nothing else (never `git add -A`):
+
+```
+git checkout -b docs/chronicle-sweep-$(date +%F)
+git add docs/chronicle
+git commit -m "docs(chronicle): sweep $(date +%F) — <N> record(s)"
+git push -u origin docs/chronicle-sweep-$(date +%F)
+gh pr create --fill --base main
+```
+
+- The branch/PR already exists (a died run, or a second batch this session)? Commit onto the same
+  branch and push — later batches land on the ONE raised PR; do not open a second.
+- The gate refuses a **duplicate ADR id**? Another sweep's PR merged first (the §13 race — the
+  filenames merge cleanly, the ids may not): reset this docs branch onto a fresh `origin/main`,
+  re-run the emitter (it allocates past the merged records), commit again.
+
+### 8. Advance the cursor — only now, only after BOTH landings
 
 ```
 write_memory { projectId, scope: "project", key: "chronicle.cursor",
                value: "<the cursor of the batch you just finished>" }
 ```
 
-**Only after every page in THAT BATCH ingested** — the cursor the `wait_for_updates` call returned,
-not one from a later call whose tickets you have not swept (step 2). If any ingest failed, leave the
-cursor alone and say which ticket failed. On the genesis / `truncated` path, write the anchor only if
-you swept the whole DONE backlog; if you capped, write nothing. That ordering is the whole idempotency
-story:
+**Only after every page in THAT BATCH ingested AND the batch's docs PR is raised.** This CHANGES the
+rule this skill used to state — advance after the ingest alone — per §8.3 step 9, decided on T-300:
+the repo files are part of the batch landing, and a cursor advanced before the PR exists strands
+those files in a checkout nobody will revisit while the board believes the tickets are chronicled.
+*Raised* is the bar, not merged: a raised PR survives the session, and re-sweeping a ticket whose PR
+later merges is a no-op (the `tasks:` triple is already in the tree). A sweep PR **closed unmerged**
+is the one way to lose repo records after the cursor moved — treat closing one as deleting records;
+the recovery is the deliberate DONE-listing pass.
 
-- A sweep that dies mid-flight — crash, context exhaustion, a 500 on the third ingest — leaves the
-  cursor where the last completed batch put it, so the next run re-derives from there. Nothing is
-  lost, because nothing was marked done.
-- Re-deriving is safe because `slug` is a deterministic function of the ticket (`adr/<task-id>`, and
-  nothing else — the title is display, not identity) and ingest is idempotent per slug: the tickets
-  already chronicled merge to a no-op and only the ones that never landed produce a new version.
-- So the failure mode is a *repeated* sweep, never a *skipped* ticket. That is the right way round.
+The cursor is the one from the `wait_for_updates` call — never one from a later call whose tickets
+you have not swept (step 2). If the emit, any ingest, or the PR failed, leave the cursor alone and
+say which. On the genesis / `truncated` path, write the anchor only if you swept the whole DONE
+backlog; if you capped, write nothing. That ordering is the whole idempotency story:
+
+- A sweep that dies mid-flight — crash, context exhaustion, a 500 on the third ingest, a `gh` that
+  cannot push — leaves the cursor where the last completed batch put it, so the next run re-derives
+  from there. Nothing is lost, because nothing was marked done.
+- Re-deriving is safe on BOTH surfaces: the hosted slug is a deterministic function of the ticket
+  (`adr/<task-id>`, and nothing else — the title is display, not identity) and ingest is idempotent
+  per slug; the emitter skips any ticket whose triple is already in a committed record and re-emits
+  byte-identically otherwise. The failure mode is a *repeated* sweep, never a *skipped* ticket.
 
 Retitling a ticket no longer forks its page — this page warned about that when the slug still carried
 a title slug, and it does not. What still forks a page is a change to the slug SHAPE itself, which is
@@ -270,21 +332,23 @@ a change to `sweep.py` and is not something a sweep run can cause.
 
 ## Report
 
-One line per record — ticket id, slug, block count, coverage — then the cursor you wrote (or did not
-write, and why), any ingest conflicts, and what the forge check found. State plainly if you capped the
-batch and tickets remain, and — separately — **if any call came back `truncated`**, because that is
-tickets nobody will chronicle until someone runs the DONE-listing pass. A capped batch resumes itself;
-a gap does not.
+One line per record — ticket id, slug, ADR file (or "already chronicled"), block count, coverage —
+then the docs PR url (or why there is none), the cursor you wrote (or did not write, and why), any
+ingest conflicts, and what the forge check found. State plainly if you capped the batch and tickets
+remain, and — separately — **if any call came back `truncated`**, because that is tickets nobody will
+chronicle until someone runs the DONE-listing pass. A capped batch resumes itself; a gap does not.
 
 ## What this procedure does NOT do
 
-Say so rather than implying otherwise, because §8.3 of the design describes more than this half:
+Say so rather than implying otherwise, because §8.3 of the design describes more than this:
 
-- **It does not write `docs/chronicle/adr/*.md`, regenerate `topics/`, or raise a docs PR.** This
-  sweep ends at `ingest_chronicle_page` — the hosted surface. The file-emitting half, the ADR-id
-  allocation (`max(existing) + 1`), the supersession stamping and the `chronicle:check` guards belong
-  to a different ticket.
-- **It does not classify against existing ADR frontmatter,** so it cannot yet detect that a new record
-  supersedes an old one. Dedupe here is by slug and by the cursor, which is weaker and sufficient for
-  the ingest path.
-- **It does not cluster several tickets into one decision.** One ticket, one record, today.
+- **It does not detect supersession.** `supersedes` is yours to declare in the window payload,
+  reading `docs/chronicle/adr/` with your own judgment; the emitter validates the target exists and
+  stamps the back-pointer, nothing more.
+- **It does not cluster several tickets into one decision.** One ticket, one record — clustering is
+  CH-8 (T-178).
+- **It does not merge the docs PR, and it does not trigger ingest-from-merged-files.** CH-20 (T-301)
+  owns that trigger; until it lands, step 6's direct ingest is the interim hosted path — now carrying
+  `sourcePath`, so the handover to CH-20 forks nothing.
+- **It never writes narrative.** Topic pages' headers are authored; a fresh topic page is created
+  without one rather than with a faked one.
