@@ -223,8 +223,9 @@ python3 scripts/chronicle/emit.py < window.json > pages.json
 
 That writes, into the checkout: one `docs/chronicle/adr/NNNN-<slug>.md` per new record (append-only;
 `ADR-NNNN` allocated max(existing)+1 from the filesystem), the `superseded_by` stamp on anything a
-new record supersedes, and the regenerated MECHANICAL regions of `topics/*.md` + `index.md` (counts
-and tables only — the narrative headers and the topic registry are authored and untouched). A ticket
+new record supersedes, the regenerated MECHANICAL regions of `topics/*.md` + `index.md` (counts
+and tables only — the narrative headers and the topic registry are authored and untouched), each
+feature's page + diagram (§4a, §4b), and the `contracts/mcp.json` copy (§4b). A ticket
 whose triple already appears in some record's `tasks:` is skipped, so a re-run mints no duplicates.
 Then prove it: `python3 scripts/chronicle/check.py` must be green before the files go anywhere.
 
@@ -276,6 +277,39 @@ The page **points at** where each part of the story lives — per record: its ti
 coverage, and which sections it carries. It does not re-narrate them. Synthesising "why this feature
 exists" across records is authored prose and is never generated (PRD §13); write it above the
 generated table if you want it, exactly as on a topic page, and it will survive every regeneration.
+
+### 4b. Diagrams and contracts — two artefacts you never write by hand
+
+The same `emit.py` run produces two more things. Both are DERIVED, so hand-editing either is caught
+by `chronicle:check` guard 2, and neither needs an instruction from you.
+
+**A per-feature Mermaid diagram** — `docs/chronicle/diagrams/feature-<key>.mmd`, and the same text
+as an inline mermaid fence on `features/<key>.md` (a link to a `.mmd` does not render; the fence
+does, in both tiers). Its nodes are the feature's records and the artifacts they CITE, deduped: a PR
+or file touched by two of the feature's tickets is **one node with two edges**, and that shared node
+is the only thing on the page you could not read off the table above it. Nothing is inferred — an
+edge exists because a record cites it, which is why the diagram is only as good as the `artifacts`
+you passed in step 3. It is NOT embedded in an ADR body: a body is immutable under `body_sha256`
+(§6.1) and a feature's diagram grows an edge every time another of its tickets is chronicled, so the
+feature page is the only legal host.
+
+This is **not** the master architecture diagram. That one is `diagrams/architecture.mmd`, derived
+from `infra/` and the import graph by a different script and guarded separately — a system diagram
+inferred from ticket prose is confidently wrong, which is worse than absent.
+
+**The contracts copy** — `docs/chronicle/contracts/mcp.json`, a BYTE COPY of `docs-site/mcp.json`.
+Never regenerated: that file is already derived from the registered tools by `npm run spec` and
+guarded by `spec:check`, and a second enumerator for one set of facts is exactly the rot the
+one-generator rule exists to prevent. Guard 2 byte-compares the two and fails on any drift. If you
+add a tool, run `npm run spec` and then:
+
+```
+python3 scripts/chronicle/emit.py --contracts
+```
+
+which reads no stdin and copies that one file — no sweep required. In a checkout that has no
+`docs-site/` (the chronicle tree is portable into a repo that does not carry one) the copy is
+skipped and guard 2 prints a loud UNVERIFIED rather than passing in silence.
 
 ### 5. Enrich — best-effort, never blocking
 
