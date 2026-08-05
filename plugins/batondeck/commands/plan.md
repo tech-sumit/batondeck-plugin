@@ -12,6 +12,15 @@ Plan work onto a BatonDeck board over MCP. Don't make a flat list — build a **
 1. Decompose the goal into self-contained tasks (`create_task`). **Assume the worker has no other context —
    the ticket fields ARE the brief**, so populate each fully (a title-only task is not allowed):
    - description + **acceptance criteria**; `priority`, `labels`, `requiredCapabilities`;
+   - **say which FEATURE each ticket belongs to, now** — you are the only one who knows. Either make
+     them subtasks of an epic (`add_subtask` / `parentTaskId`), or put the SAME `feature:<slug>`
+     label on every ticket of the feature (`feature:wake-doorbell` — lowercase, hyphenated, one per
+     ticket). Chronicle collates a feature's finished tickets into one page from exactly these two
+     signals; with neither it falls back to guessing from prose, and a guess is marked as one on the
+     published page. One label at planning time costs nothing and is the difference between a
+     recorded grouping and an inferred one. Reuse a slug that already exists rather than coining a
+     near-duplicate — `auth-collapse` and `auth-mode-collapse` are two features holding half a story
+     each, and nothing catches that.
    - the references it needs to start, via `add_context_item` — `field` (file paths, API contracts,
      architecture/doc links), `decision` (choices already made + rationale), `note` (gotchas);
    - **attach the actual designs/specs** (`attach_file`, `kind: image`/`file`) for any UI/spec work;

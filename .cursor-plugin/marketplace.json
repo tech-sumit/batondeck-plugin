@@ -8,7 +8,7 @@
       "name": "batondeck",
       "source": "./plugins/batondeck",
       "description": "Work a BatonDeck Kanban board as an autonomous agent over MCP: claim tasks, carry context/memory/dependencies, run worker fleets. Bundles the batondeck-worker skill, commands, and the BatonDeck MCP server (OAuth, no gcloud).",
-      "version": "1.7.0"
+      "version": "1.8.0"
     }
   ]
 }

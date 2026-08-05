@@ -150,9 +150,13 @@ expects, exactly:
 { "projectId": "P-…", "boardId": "B-…",
   "knownTasks": { "T-42": "B-…" },
   "tasks": [ { "id": "T-162", "title": "…", "description": "…", "deliverable": "…",
+               "labels": ["wake"], "parentTaskId": null,
                "items": [ { "body": "…" } ],
                "artifacts": [ { "kind": "pr", "url": "…" } ] } ] }
 ```
+
+`labels` and `parentTaskId` come straight off `get_task` and are what the emitter groups on (below).
+Passing neither is not an error — it silently costs you every feature page, which is worse.
 
 **`knownTasks` is how a cross-window citation gets made, and without it the most valuable link in a
 record silently vanishes.** A citation carries the full `projectId/boardId/taskId` triple, and the
@@ -244,6 +248,35 @@ server-side merge can tell an edited block from a moved one; hand-authored text 
 this path would be recorded as `derived` and would inherit a citation's authority without having been
 derived from it.
 
+### 4a. Grouping — one feature, several tickets (you supply the inputs; the emitter decides)
+
+An ADR covers one ticket. A FEATURE usually covers several, so the emitter also writes
+`docs/chronicle/features/<key>.md` — one page per feature, citing every ticket in it. **You do not
+resolve this and you must not hand-write a feature page.** Your whole job is to pass `labels` and
+`parentTaskId` through on each task (above); `emit.py` resolves the rest in strict precedence
+(PRD §6.8), stamps the answer into each ADR's `feature:` / `feature_via:` frontmatter, and derives
+the page from those stamps:
+
+1. **`parentTaskId` / subtasks** — an epic and its subtasks. Key: the parent's id (`t-104`).
+2. **A `feature:<slug>` label** applied at PLANNING time. Key: the slug. This is the one to reach
+   for: planning is when somebody actually KNOWS the grouping, and a recorded answer beats a guess.
+   Two `feature:` labels on one ticket is refused — nobody can resolve that later.
+3. **Inference** — FALLBACK ONLY, and deliberately narrow: a shared `pr`/`branch`/`commit`
+   artifact, or an explicit cross-reference phrase ("Follow-on from T-111", "Split out of T-42").
+   A bare `T-42` in prose is never a link, and topic/time-window clustering is NOT implemented —
+   it would fuse every ticket of one lane in one week into a single meaningless "feature".
+
+Two things worth knowing before you read a page. **`via: inference` on a feature page means nobody
+recorded that grouping and a script guessed it** — weigh it accordingly, and if the guess is right,
+make it a fact by labelling the tickets. And a feature needs **≥2** chronicled tickets to earn a
+page; a lone ticket is stamped anyway, so a sibling swept next week joins it rather than forking a
+second page.
+
+The page **points at** where each part of the story lives — per record: its ticket triple, its
+coverage, and which sections it carries. It does not re-narrate them. Synthesising "why this feature
+exists" across records is authored prose and is never generated (PRD §13); write it above the
+generated table if you want it, exactly as on a topic page, and it will survive every regeneration.
+
 ### 5. Enrich — best-effort, never blocking
 
 ```
@@ -333,7 +366,8 @@ a change to `sweep.py` and is not something a sweep run can cause.
 ## Report
 
 One line per record — ticket id, slug, ADR file (or "already chronicled"), block count, coverage —
-then the docs PR url (or why there is none), the cursor you wrote (or did not write, and why), any
+then every feature page written or updated **with how its grouping was resolved** (a `via: inference`
+page is a guess a reader should be told about, not a fact), then the docs PR url (or why there is none), the cursor you wrote (or did not write, and why), any
 ingest conflicts, and what the forge check found. State plainly if you capped the batch and tickets
 remain, and — separately — **if any call came back `truncated`**, because that is tickets nobody will
 chronicle until someone runs the DONE-listing pass. A capped batch resumes itself; a gap does not.
@@ -345,10 +379,19 @@ Say so rather than implying otherwise, because §8.3 of the design describes mor
 - **It does not detect supersession.** `supersedes` is yours to declare in the window payload,
   reading `docs/chronicle/adr/` with your own judgment; the emitter validates the target exists and
   stamps the back-pointer, nothing more.
-- **It does not cluster several tickets into one decision.** One ticket, one record — clustering is
-  CH-8 (T-178).
-- **It does not merge the docs PR, and it does not trigger ingest-from-merged-files.** CH-20 (T-301)
-  owns that trigger; until it lands, step 6's direct ingest is the interim hosted path — now carrying
-  `sourcePath`, so the handover to CH-20 forks nothing.
+- **It does not cluster several tickets into one RECORD.** One ticket, one ADR, still. What T-178
+  added is the layer above: several ADRs collated into one FEATURE page (step 4a). The ADRs
+  themselves are never merged, so no ticket's evidence is folded into another's.
+- **It does not merge the docs PR, and the merge trigger does not ingest.** CH-20 (T-301) landed
+  `.github/workflows/chronicle-ingest.yml`: on a push to `main` touching `docs/chronicle/**` it
+  resolves the records that merge claims to their hosted pages — slug from the frontmatter `tasks:`
+  triple, never the filename — and refuses any it cannot. It makes **no ingest call**, because there
+  is no credential CI can hold (the authorization server is browser-only, and a stored refresh token
+  dies within 24h of the sign-in that minted it) and the merged markdown does not carry the block ids
+  `ingest_chronicle_page` merges on. Both are owner decisions, written out in
+  `scripts/chronicle/ingest.py`'s header.
+  **So step 6's direct ingest is no longer "interim pending CH-20" — it is THE hosted path, and the
+  labeled escape hatch. Do not skip it because a trigger now exists.** It carries `sourcePath`, so
+  the handover forks nothing.
 - **It never writes narrative.** Topic pages' headers are authored; a fresh topic page is created
   without one rather than with a faked one.
