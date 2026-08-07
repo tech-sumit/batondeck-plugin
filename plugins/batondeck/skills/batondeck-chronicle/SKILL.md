@@ -1,6 +1,8 @@
 ---
 name: batondeck-chronicle
 description: Sweep a BatonDeck board's finished tickets into Chronicle decision records — both tiers. Reads a durable project-memory cursor, takes the window of task.completed / task.reopened / task.requeued / task.moved-into-DONE events since it, pulls each ticket's composed context over MCP, pipes the batch through the repo's deterministic emitter (which writes docs/chronicle/adr/NNNN-*.md, stamps superseded_by, and regenerates the topics/index mechanical regions), ingests the resulting pages with ingest_chronicle_page (sourcePath filled), raises ONE docs PR for the batch, and advances the cursor only after the ingest succeeded AND the PR is raised — so a sweep that dies mid-flight is re-derived on the next run instead of losing tickets. Forge (GitHub) review threads are best-effort enrichment that never blocks a sweep, and every record declares which evidence it actually had. Invoked by the plugin's /batondeck:chronicle command.
+license: Proprietary. LICENSE at the repository root has the complete terms
+compatibility: Designed for Claude Code (or similar products). Runs only inside a checkout of the BatonDeck repository (needs scripts/chronicle/sweep.py); requires Python 3 and network access to the BatonDeck MCP server
 ---
 
 # BatonDeck Chronicle

@@ -1,0 +1,26 @@
+name: Validate
+on:
+  push:
+    branches: ['**']
+  pull_request:
+jobs:
+  agent-plugins-spec:
+    name: Agent Plugins 1.0.0 conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install jsonschema pyyaml
+      - run: python3 .github/scripts/validate-plugin.py
+      - name: Validate client-specific manifests
+        run: |
+          python3 -c "import json; [json.load(open(p)) for p in [
+            '.claude-plugin/marketplace.json',
+            '.cursor-plugin/marketplace.json',
+            'plugins/batondeck/.claude-plugin/plugin.json',
+            'plugins/batondeck/.cursor-plugin/plugin.json',
+            'plugins/batondeck/.mcp.json',
+            'plugins/batondeck/hooks/hooks.json',
+          ]]"

@@ -9,7 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate manifests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate against Agent Plugins 1.0.0
+        run: |
+          pip install jsonschema pyyaml
+          python3 .github/scripts/validate-plugin.py
+      - name: Validate client-specific manifests
         run: |
           python3 -c "import json; json.load(open('.claude-plugin/marketplace.json')); json.load(open('plugins/batondeck/.claude-plugin/plugin.json')); json.load(open('plugins/batondeck/.mcp.json'))"
       - name: Package plugin

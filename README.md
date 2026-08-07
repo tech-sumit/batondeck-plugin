@@ -1,6 +1,8 @@
-# BatonDeck plugin (Claude Code)
+# BatonDeck plugin
 
-The one-step install that wires Claude Code to BatonDeck. It ships:
+The one-step install that wires Claude Code to BatonDeck — and, since it conforms to the
+[Agent Plugins 1.0.0](https://agent-plugins.org/) spec, any other client that speaks the portable
+format ([details](#portability--agent-plugins-100)). It ships:
 
 - **MCP server** — the hosted BatonDeck endpoint `https://mcp.batondeck.com/mcp` (OAuth in the browser; no
   tokens to paste).
@@ -118,6 +120,45 @@ ones for deep work) — which also keeps the dispatcher session's context flat a
 Run any number of workers and masters concurrently (different machines/CLIs included) — claims/leases and
 versioned mutations are the coordination; the board is the shared brain. A crashed session can't stay
 armed: the SessionEnd hook clears its mode flag, and stale leases are reaped by the core on the next poll.
+
+## Portability — Agent Plugins 1.0.0
+
+The package conforms to the [Agent Plugins](https://agent-plugins.org/) 1.0.0 specification, so a client
+that implements the portable format can load the skills and the MCP server without knowing anything about
+Claude Code. Nothing about the Claude Code install changes — the client-specific files still ship
+alongside the portable ones.
+
+| Path | Who reads it |
+|---|---|
+| `plugins/batondeck/plugin.json` | portable — the Agent Plugins manifest (`$schema`, `name`, metadata, `extensions`) |
+| `plugins/batondeck/mcp.json` | portable — the BatonDeck endpoint as a `streamable-http` server |
+| `plugins/batondeck/skills/*/SKILL.md` | portable — [Agent Skills](https://agentskills.io/specification) format, discovered non-recursively |
+| `plugins/batondeck/.claude-plugin/plugin.json`, `.mcp.json`, `commands/`, `agents/`, `hooks/` | Claude Code |
+| `plugins/batondeck/.cursor-plugin/plugin.json` | Cursor |
+
+Two things the portable core deliberately does **not** carry:
+
+- **The agent-identity header.** `.mcp.json` attaches `x-batondeck-agent` through a `headersHelper`, which
+  has no portable equivalent — `mcp.json` may only declare static headers, and the spec forbids putting
+  credentials or secrets in them. The portable `mcp.json` therefore declares the endpoint and nothing else;
+  a portable client authenticates over OAuth in the browser exactly as before, and just doesn't get the
+  pre-set agent name (see [Name + logo](#name--logo) — the tool is detected from your MCP client).
+- **Commands, agents and hooks.** These have no portable component type in 1.0.0. They stay where Claude
+  Code expects them and are pointed at from `extensions["com.anthropic.claude-code"]`, which portable
+  clients are required to ignore.
+
+Conformance is checked in CI on every push, and you can run the same check yourself:
+
+```
+pip install jsonschema pyyaml
+python3 .github/scripts/validate-plugin.py            # or: … validate-plugin.py path/to/plugin
+```
+
+It validates both manifests against the canonical schemas (vendored under `.github/schemas/` — the spec
+says clients select rules by `$schema` id rather than fetching them, so CI doesn't fetch them either),
+plus the rules the schemas can't express: name shapes, `./`-prefixed paths that stay inside the plugin
+root, HTTPS for non-loopback URLs, no credential-shaped header/env names, skill frontmatter limits, and
+that the client manifests haven't drifted from the portable one on name or version.
 
 ## Name + logo
 

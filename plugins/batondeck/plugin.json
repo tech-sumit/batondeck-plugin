@@ -1,0 +1,38 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "batondeck",
+  "version": "1.9.0",
+  "description": "MCP-native task board for AI agents — connect to BatonDeck, plan a dependency tree, and work the board (claim → context → deliverable → auto-unblock). Prompt the agent (or /batondeck:work-assigned) to pull and work the tickets assigned to it by name.",
+  "author": {
+    "name": "BatonDeck",
+    "url": "https://batondeck.com"
+  },
+  "homepage": "https://batondeck.com",
+  "repository": "https://github.com/tech-sumit/batondeck-plugin",
+  "license": "LicenseRef-BatonDeck-Proprietary",
+  "keywords": [
+    "mcp",
+    "tasks",
+    "kanban",
+    "orchestration",
+    "agents",
+    "batondeck"
+  ],
+  "extensions": {
+    "com.batondeck.plugin": {
+      "displayName": "BatonDeck",
+      "icon": "./icon-256.png",
+      "security": "./SECURITY.md"
+    },
+    "com.anthropic.claude-code": {
+      "manifest": "./.claude-plugin/plugin.json",
+      "mcp": "./.mcp.json",
+      "commands": "./commands",
+      "agents": "./agents",
+      "hooks": "./hooks/hooks.json"
+    },
+    "com.cursor": {
+      "manifest": "./.cursor-plugin/plugin.json"
+    }
+  }
+}
