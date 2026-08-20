@@ -53,7 +53,9 @@ OAuth 2.0 Protected Resource Metadata (RFC 9728) at `/.well-known/oauth-protecte
 **`https://mcp.batondeck.com` as the authorization server**. Authorization is by **project
 membership**: a valid token with no membership sees nothing.
 
-> **A gcloud-minted Google ID token does NOT work, and there is no headless token flow today.** The
+> **A gcloud-minted Google ID token does NOT work, and there is no headless token flow for a PERSON.**
+> (A MACHINE has one since T-320: an organization-owned WorkOS API key used as the bearer, validated at
+> the proxy rather than minted by the AS. It is refused for user-owned keys.) The
 > core verifies `iss == https://mcp.batondeck.com`; a Google ID token carries
 > `iss = https://accounts.google.com` and is rejected — `401 UNAUTHENTICATED`. The authorization
 > server advertises only `authorization_code` (browser sign-in) and `refresh_token`, so a CI/headless
@@ -733,12 +735,20 @@ Four things to understand before you use it:
   `{"wake":{"kind":…,"count":N}}` and stops.
 - **Exit codes match `watch.sh`:** `0` rang — sweep, then wait again · `3` deadline — just re-run ·
   `4` **wake is not available here** (no token, no wake service, no subscription, revoked). On 4, stop
-  re-running it and rely on the long-poll alone; the reason is printed on stderr. Most deployments
-  answer 4 — the channel ships off — and that is fine: the worker behaves exactly as it does today.
-- **Auth mode:** it needs `BATONDECK_TOKEN`, the same requirement `watch.sh` has, so it works on the
-  **headless / bring-your-own-token path only**. On the plugin's browser-OAuth path the MCP token lives
-  inside the client and is invisible to Bash, so this exits 4 immediately — there loop the
-  `wait_for_updates` / `wait_for_task` MCP tools, as the box above already says.
+  re-running it and rely on the long-poll alone; the reason is printed on stderr. This line used to say
+  "most deployments answer 4 — the channel ships off". **Not since T-162:** both hosted environments
+  set `wake_enabled = true` (`infra/envs/{prod,staging}.tfvars`), confirmed on the running cores
+  2026-08-19. Exit 4 is the exception on a hosted deployment now, not the norm.
+- **Auth mode:** it needs `BATONDECK_TOKEN`, the same requirement `watch.sh` has — **and a `bd_` CLI
+  token minted from Settings satisfies it, measured 2026-08-20** (staging: mint 200 → STS → pull; an
+  assignment rang the doorbell, `{"wake":{"kind":"assigned","count":1}}`, and `next_task` returned the
+  task on the sweep). This line has been wrong in BOTH directions — first claiming CLI tokens worked
+  before they did (`401 Invalid Compact JWS`, retracted same day), then correctly refusing until the
+  core learned the `bd_` exchange AND a second, older bug fell: the mint queried session rows by a key
+  T-216 had re-keyed, refusing every iam-mode caller (`0e57d98`). So the one headless credential now
+  runs BOTH surfaces — stateless MCP tool calls and this listener — and one revocation closes both.
+  On the plugin's browser-OAuth path (no token in your shell at all), loop the `wait_for_updates` /
+  `wait_for_task` MCP tools as before; mint a CLI token from Settings if you want the doorbell too.
 
 It presents your stable agent id (`x-batondeck-agent-id`) so it wakes for *your* subscription and not a
 sibling's, reads `BATONDECK_WAKE_URL` for the mint service, and writes the same pidfile `watch.sh` does

@@ -18,16 +18,42 @@ only correct response is to go and re-read through the CORE, where authorization
 prints `{"wake":{"kind":…,"count":N}}` and stops; the sweep is the caller's job and always was. No
 board data ever travels this path.
 
-IT RUNS ALONGSIDE `wait_for_updates`, NEVER INSTEAD OF IT. The long-poll is still the only
-cross-instance fan-out and still carries cache invalidation; this is a second, cheaper ear. Start both
-as background tasks and act on whichever returns first. If wake is off — the default posture
-everywhere, `wake_enabled = false` — this exits 4 immediately with a reason and the worker behaves
-exactly as it does today.
+IT RUNS ALONGSIDE `wait_for_updates`, NEVER INSTEAD OF IT. The long-poll answers "what changed on the
+board"; this answers only "you were assigned something" — a doorbell, not a feed. (Until 2026-08-20
+this paragraph called the long-poll "the only cross-instance fan-out", which conflated the client
+channel with the server's internals; the server-side carrier map is docs/NOTIFICATION-ARCHITECTURE.md.)
+Start both as background tasks and act on whichever returns first. Where wake is off this exits 4 with
+a reason and the worker behaves exactly as it does without it.
 
-AUTH MODE, STATED (CONTRIBUTING rule 8): this needs `BATONDECK_TOKEN`, so it is available on exactly
-the path `watch.sh` is — headless / bring-your-own-token — and NOT on the plugin's browser-OAuth path,
-where the MCP token lives inside Claude Code's client and is invisible to Bash (T-62). On OAuth, loop
-the `wait_for_updates` / `wait_for_task` MCP tools instead; there is no headless mint today.
+WAKE IS ON IN BOTH HOSTED ENVIRONMENTS, and this docblock said the opposite until 2026-08-19. It read
+"the default posture everywhere, `wake_enabled = false`". That was true when written and has not been
+since T-162: `infra/envs/prod.tfvars:314` and `infra/envs/staging.tfvars:293` both set
+`wake_enabled = true`, and the running services confirm it (`WAKE_ENABLED=true` on the staging and
+production cores, read off Cloud Run 2026-08-19). Exit 4 is now the exception on a hosted deployment,
+not the norm — it still means what it says (no token, no wake service, no subscription, revoked), but
+do not read it as "expected here".
+
+AUTH MODE, STATED (CONTRIBUTING rule 8): this needs `BATONDECK_TOKEN` — either a JWT access token or
+a `bd_` CLI token minted from Settings. Both work, measured, and ONE credential runs both surfaces:
+the same token makes the stateless MCP tool calls AND authorizes this listener's mint. Revoking it
+(or `disconnect_agent`) closes both.
+
+A CLI TOKEN WORKS HERE SINCE 2026-08-20, AND THE HISTORY IS WORTH THE THREE PARAGRAPHS, because this
+paragraph has now been wrong in BOTH directions. First it claimed CLI tokens worked when they did not
+(measured: `401 "Invalid Compact JWS"` — `/internal/wake-session` parsed every bearer as a JWT and a
+`bd_` token is an opaque secret). Retracted same day. Then the fix landed in two halves: the core
+branches on the `bd_` prefix and resolves it with the same exchange the mcp-gateway proxy uses; and —
+the half NOBODY was looking for — the mint had been querying session rows by the raw bearer subject
+since T-216 re-keyed them onto the account id, so it answered `403 "No active agent session for this
+identity"` to EVERY iam-mode caller, JWT included. Both fixed (`0e57d98`), and this time the claim is
+written from the measured loop, not the diff:
+
+    LISTENER_EXIT=0
+    {"wake": {"kind": "assigned", "count": 1}}
+
+(staging, 2026-08-20: `bd_` token -> mint 200 -> STS -> pull; a board assignment rang it in ~16s and
+`next_task` returned the task on the sweep.) If this refuses with 401/403 on a hosted deployment, do
+not reason from this docblock — the refusal is the evidence; capture it and file it.
 
     wake-listen.py [max_sec]        default 3500 (background-friendly)
 
