@@ -397,6 +397,19 @@ Retitling a ticket no longer forks its page — this page warned about that when
 a title slug, and it does not. What still forks a page is a change to the slug SHAPE itself, which is
 a change to `sweep.py` and is not something a sweep run can cause.
 
+## How the hosted page RENDERS what you ingest (T-491, 2026-08-21)
+
+Knowing this saves you from "fixing" records that are fine:
+
+- **A `derived` block shows NO provenance chip.** Its provenance is the small grey citation under the
+  block — the task link IS the reference. Chips appear only where a reader must be warned: `authored`
+  (a person wrote it) and `edited — citation may no longer hold` (derived-then-edited).
+- **Evidence and coverage blocks fold** behind a "Evidence & coverage" disclosure; context, decision
+  and rejections lead the page. This is presentation only — the sweep's section-scoped block ids
+  (`ctx…`, `dec…`, `ev…`, `cov…`) are what drive it, another reason never to hand-mint ids.
+- **GFM tables and ```mermaid fences render properly** — emit tables and inline diagrams freely; a
+  link to a `.mmd` still does not render, the fence does.
+
 ## Report
 
 One line per record — ticket id, slug, ADR file (or "already chronicled"), block count, coverage —
