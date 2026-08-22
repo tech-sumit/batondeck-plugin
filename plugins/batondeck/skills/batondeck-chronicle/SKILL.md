@@ -339,6 +339,20 @@ Per page, adding the `projectId` the script does not carry:
 ingest_chronicle_page { projectId, kind, slug, title, sourcePath, blocks }
 ```
 
+**On driving these calls.** A sweep of any size produces payloads too large to retype: the 2026-08-22
+batch was 373 blocks and 244KB, each block carrying a `blockHash` the server validates only as
+`^[a-f0-9]{64}$` — so a well-formed WRONG hash is accepted silently and there is no independent check
+available to you at the tool layer. Hand-transcription is therefore the least safe option, not the
+most. Both sweeps to date instead drove the ingest programmatically from `pages.json` so the bytes
+never pass through a model's context.
+
+If you do that, the credential is the thing to be careful with, and these controls are not optional:
+mint a SHORT-TTL CLI token, keep it out of the repo, **revoke it when the sweep ends and PROVE it dead**
+(re-run a call that worked minutes earlier and confirm `UNAUTHENTICATED`), and know what you are
+holding — a token minted by a workspace owner carries their FULL permissions, `batondeck:superadmin`
+included. There is no narrower scope available: `create_cli_token` takes `{label, ttlSeconds}` only and
+mints for the caller. Say in your report that you minted one, and what you revoked.
+
 First sight creates the page. A re-ingest **merges**: unchanged blocks take the new derivation,
 human-edited blocks are kept, and blocks changed on both sides come back as `conflicts` for a human to
 land. Re-ingesting an unchanged record writes no version at all. Report any `conflicts` — do not try
@@ -355,9 +369,14 @@ git checkout -b docs/chronicle-sweep-$(date +%F)
 git add docs/chronicle
 git commit -m "docs(chronicle): sweep $(date +%F) — <N> record(s)"
 git push -u origin docs/chronicle-sweep-$(date +%F)
-gh pr create --fill --base main
+gh pr create --base main --title "docs(chronicle): sweep $(date +%F) — <N> record(s)"
 ```
 
+- **Pass `--title` explicitly; never `--fill` here.** On a branch with more than one commit `--fill`
+  derives the title from the BRANCH NAME (`docs/chronicle sweep 2026 08 22`), which fails
+  `check-pr-naming.py` — a REQUIRED check. Recovering costs a full gate cycle, because `pull_request`
+  does not listen for `edited`, so editing the title does not re-run the check and re-running the job
+  replays the old title; you need an empty commit. Measured on the 2026-08-22 sweep.
 - The branch/PR already exists (a died run, or a second batch this session)? Commit onto the same
   branch and push — later batches land on the ONE raised PR; do not open a second.
 - The gate refuses a **duplicate ADR id**? Another sweep's PR merged first (the §13 race — the
