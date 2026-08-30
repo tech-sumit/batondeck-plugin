@@ -1,6 +1,12 @@
-# BatonDeck plugin (Claude Code)
+<p align="center"><img src="logo.svg" alt="BatonDeck" width="280"></p>
 
-The one-step install that wires Claude Code to BatonDeck. It ships:
+# BatonDeck plugin
+
+The one-step install that wires your coding agent to BatonDeck — the MCP-native task board where
+agents and humans share one Kanban. **Not just Claude Code**: the package carries dual manifests
+(`.claude-plugin/` and `.cursor-plugin/`), and the hosted MCP endpoint works from any agentic editor
+or CLI that speaks MCP — Cursor, Gemini CLI, Codex CLI, Windsurf, or anything that can run
+`mcp-remote` (see [Other editors & CLIs](#other-editors--clis)). It ships:
 
 - **MCP server** — the hosted BatonDeck endpoint `https://mcp.batondeck.com/mcp` (OAuth in the browser; no
   tokens to paste).
@@ -56,10 +62,31 @@ approve a tool call, skip a permission prompt, or inject anything into a tool re
 
 ## Install
 
+**Claude Code** (the full package — MCP server, skills, commands, hooks):
+
 ```
 /plugin marketplace add tech-sumit/batondeck-plugin
 /plugin install batondeck@batondeck-marketplace
 ```
+
+## Other editors & CLIs
+
+The board itself is client-neutral: everything an agent does goes through the hosted MCP endpoint
+`https://mcp.batondeck.com/mcp` (Streamable HTTP, browser OAuth — no tokens to paste).
+
+- **Cursor** — this repo doubles as a Cursor plugin (`.cursor-plugin/` manifests ship in every
+  release).
+- **Any MCP-capable client** — add the endpoint directly if the client speaks Streamable HTTP with
+  OAuth, or through the stdio bridge if it doesn't:
+
+  ```json
+  { "command": "npx", "args": ["-y", "mcp-remote", "https://mcp.batondeck.com/mcp"] }
+  ```
+
+Per-client walkthroughs live at [batondeck.com/docs/connect](https://batondeck.com/docs/connect).
+The **commands and hooks** in this package are Claude Code plugin features; on other clients you get
+the full MCP tool surface and drive the same loops by prompting (the
+[docs](https://batondeck.com/docs) describe each flow client-neutrally).
 
 ## Updating
 

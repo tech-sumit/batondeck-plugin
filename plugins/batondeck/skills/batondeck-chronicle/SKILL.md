@@ -238,6 +238,12 @@ On stdout comes one `ingest_chronicle_page` payload per ticket — `kind`, `slug
 `sourcePath`, `blocks[]`, each block carrying its citations (the full `projectId/boardId/taskId`
 triple — never a bare `T-52`, which is not unique even within one project) and an `origin.blockHash`.
 
+**Plus one payload for every topic and feature page**, `kind: 'topic'` / `'feature'`, slugged
+`topic/<registry slug>` and `feature/<key>` with `sourcePath` at `docs/chronicle/{topics,features}/`.
+They ride EVERY sweep whether or not the page moved, exactly like an already-chronicled record: the
+re-ingest answers `unchanged: true` and writes no version. Ingest them like any other page — filtering
+them out is how the hosted index goes back to holding only ADRs, which is the state this fixed.
+
 *Fallback:* a checkout that predates the emitter still has the plugin wrapper —
 `bash "${CLAUDE_PLUGIN_ROOT}/scripts/chronicle.sh" sweep < window.json > pages.json` composes the
 same payloads hosted-only (no files, no `sourcePath`). On that path there is no docs PR, step 7 is

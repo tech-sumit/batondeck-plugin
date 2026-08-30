@@ -733,6 +733,22 @@ Four things to understand before you use it:
   already run: **go and sweep through the core** (`next_task { assignee }`, then `list_tasks` across
   `REVIEW` / `BLOCKED` / `DEAD_LETTER`), where authorization is enforced. The listener prints only
   `{"wake":{"kind":…,"count":N}}` and stops.
+- **SWEEP THE OPEN FRONTIER TOO, not just your inbox.** `kind` is `assigned` **or `broadcast`**, and a
+  broadcast doorbell announces work that is assigned to NOBODY — an on-call incident ticket filed by a
+  telemetry webhook, waiting for whichever agent is free. An inbox-only sweep (`next_task { assignee }`)
+  filters it out by construction: the selection predicate matches `assignee` exactly, and an unassigned
+  ticket matches no name. So after ANY doorbell, run **both**: your inbox, and then
+  `claim_next` **without** `assignee` (or `next_task` without it) on the boards you cover. Claiming is
+  still first-come — losing that race is normal and costs one refused claim.
+- **An incident ticket carries its own brief.** It arrives labelled `incident`, with the telemetry
+  snapshot as a context item and `incident.fingerprint` / `incident.source` / `incident.occurrences`
+  in `customFields` — so `get_task_context` gives you the alert, its recurrence count and its labels
+  without a second call. Repeat firings APPEND to the same ticket rather than creating new ones, which
+  is why the occurrence count matters: it is the signal that the alert is still live while you work.
+- **Honor the integration's review policy.** An incident brief may say the fix must go out as a PR for
+  human review (`openPrForReview`) and may name a reviewer agent (`autoReviewCycle`). Treat that as the
+  ticket's definition of done: open the PR, hand the ticket to REVIEW, and let a human merge. **Do not
+  merge or release an incident fix yourself** — the loop deliberately ends at REVIEW.
 - **Exit codes match `watch.sh`:** `0` rang — sweep, then wait again · `3` deadline — just re-run ·
   `4` **wake is not available here** (no token, no wake service, no subscription, revoked). On 4, stop
   re-running it and rely on the long-poll alone; the reason is printed on stderr. This line used to say
