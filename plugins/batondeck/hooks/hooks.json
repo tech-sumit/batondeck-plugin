@@ -1,5 +1,5 @@
 {
-  "description": "BatonDeck: assigned-task listener (SessionStart/End) + session-id export, and the stop gate that keeps an armed worker/master loop on shift. NOTE: this file is auto-loaded by convention \u2014 never reference it from plugin.json's `hooks` key; that double-loads it and the plugin fails with 'Duplicate hooks file detected'.",
+  "description": "BatonDeck: the per-session WAKE LISTENER (SessionStart/End, every session), the assigned-task listener (opt-in), session-id export, and the stop gate that keeps an armed worker/master loop on shift. NOTE: this file is auto-loaded by convention \u2014 never reference it from plugin.json's `hooks` key; that double-loads it and the plugin fails with 'Duplicate hooks file detected'.",
   "hooks": {
     "SessionStart": [
       {
@@ -13,6 +13,11 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/listener-start.sh\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/wake-start.sh\"",
+            "timeout": 10
           }
         ]
       }
@@ -28,6 +33,11 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/listener-stop.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/wake-stop.sh\"",
             "timeout": 5
           }
         ]

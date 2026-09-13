@@ -708,26 +708,36 @@ Bundled with this skill under `scripts/` (self-contained; configured by the env 
   persisted across runs). `watch.sh tasks '<{projectId,boardId}>' 'T-a,T-b|all' [max_sec] [interval]`
   is the polling fallback for cores without `wait_for_updates`. Writes a pidfile the plugin's Stop
   gate checks. The building block of the autonomous modes below.
-- `wake-listen.py [max_sec]` — **the wake channel's ear.** Blocks on this agent's Pub/Sub doorbell and
-  exits 0 the moment the board rings it. **Optional, and additive: it runs ALONGSIDE the waits above,
-  never instead of them** (see below).
+- `wake-wait.mjs [max_sec]` — **the wake channel's ear.** Blocks until this session's listener
+  delivers a doorbell, then exits 0. **Additive: it runs ALONGSIDE the waits above, never instead of
+  them** (see below). You do not start the listener — the plugin does, at session start.
 
-## The wake channel (optional): a push doorbell alongside the long-poll
+## The wake channel: a push doorbell alongside the long-poll
 
 Everything above waits by ASKING the core (`wait_for_task` / `wait_for_updates` long-polls, ~0 reads
-while parked). Where a deployment enables the wake channel there is a second, push-shaped ear: the core
-gives each agent its own Pub/Sub subscription and rings it when work is routed to that agent.
-`scripts/wake-listen.py` is what pulls it.
+while parked). The wake channel is a second, push-shaped ear: the core gives each agent its own Pub/Sub
+subscription and rings it when work is routed to that agent.
+
+**The listener is already running.** The plugin starts one per session (SessionStart) and stops it with
+the session; it subscribes once and is called per doorbell — there is no poll loop anywhere. Your job is
+only to ARM THE WAIT, so the harness wakes you when something lands:
 
 ```bash
-scripts/wake-listen.py 3500 &      # background task; exits 0 the moment the doorbell rings
+scripts/wake-wait.mjs 3500 &      # background task; exits 0 the moment a doorbell is delivered
 ```
 
-Four things to understand before you use it:
+Five things to understand before you use it:
 
-- **It is ADDITIVE, never a replacement.** Keep waiting exactly as you do today; run the listener as a
-  *second* background task and act on whichever returns first. The long-poll remains the reliable path
-  — it is the core's only cross-instance fan-out — and the listener is the cheap one.
+- **It is ADDITIVE, never a replacement.** Keep waiting exactly as you do today; arm this as a *second*
+  background task and act on whichever returns first. The long-poll remains the reliable path — it is
+  the core's only cross-instance fan-out — and the doorbell is the cheap one.
+- **RE-ARM IT after every wake, and ONCE on resume.** The wait exits when it delivers, so a new
+  background task is how you keep listening. A doorbell survives ~10 minutes unheard, so after a gap —
+  a new session, a laptop that slept, a sign-in that expired — **probe the board once** (your inbox AND
+  the open frontier, below) rather than assuming silence means no work.
+- **`{"event":"signin-required"}` means the listener has no live sign-in**, not that something broke.
+  It prints the one command to fix it (`npx -y mcp-remote <mcp-url>/mcp`). Until then only the
+  long-poll ears work — say so rather than waiting silently on a channel that cannot ring.
 - **The message tells you NOTHING, on purpose.** The doorbell is empty by contract: `agent` + `kind`
   attributes, no body, no ids, no titles. So the only correct response to a wake is the response you
   already run: **go and sweep through the core** (`next_task { assignee }`, then `list_tasks` across
@@ -827,6 +837,52 @@ the same loops prompt-driven.
 The scrum chain is emergent: dev completes → `deliverable` stored → auto-unblock flips the dependent
 QA ticket READY → the QA agent's parked wait wakes with it → `get_task_context { includeUpstream }`
 hands QA the dev's deliverable as input — no orchestrator in the data path.
+
+## Customise your org's plugin (Studio, org admins only)
+
+If your workspace has the Plugin Studio, you can build and change the plugin your ORG's agents
+receive — from here, in this session, with the tools you already have. Everything below needs the
+**org-admin permission**; a member is refused on every one of these tools, which is the point.
+
+There is no separate editor and no special mode. A plugin is content plus a version, and you compose
+it the same way a person does in the Studio UI.
+
+**The shape of the work**
+
+1. `list_plugins {}` — what your org already has. `create_plugin { name }` if this is a new one.
+2. Decide what goes in it. `list_registry_assets {}` shows two things at once: assets your org has
+   authored, and the BatonDeck-prebuilt catalog (`scope: "batondeck"`) — curated skills, commands,
+   prompts, hooks and integration templates you can take as they are. Read one before you use it with
+   `get_registry_asset { scope, type, assetId }`.
+3. Add content two ways, and prefer the first:
+   - `select_asset { pluginId, scope, type, assetId }` for anything in a registry. Selection records a
+     REFERENCE; the bytes are copied in and scanned when you finalise.
+   - `create_registry_asset { assetId, type, name, description }` + `publish_asset_version { assetId,
+     semver, files }` when you are writing something new. Publishing an asset makes it reusable across
+     every plugin in the org, which is why it is worth doing even for a one-off.
+4. `finalize_version { pluginId, semver }` — this SUBMITS it. The version freezes, its files become
+   immutable, and it enters the scan.
+5. Tell the human what you built and that **an org admin still has to approve it**. Do not describe the
+   plugin as shipped, delivered or live: it is none of those yet.
+
+**Four things that will otherwise surprise you**
+
+- **You cannot approve your own work, and neither can the tool.** `approve_version` exists and an org
+  admin drives it deliberately, after reading the scan. That gate is the entire reason an agent is
+  allowed to author plugin content at all — hooks and scripts in a version run on your teammates'
+  machines. Never approve a version you authored in the same session because it is convenient.
+- **A finalised version is frozen. There is no edit.** The fix for a bad version is a new draft and a
+  new semver, always. Do not attempt to work around it.
+- **Editing a registry asset changes nothing that already shipped.** A plugin version resolved its
+  assets when it was finalised, so a later asset edit reaches installed plugins only through a new
+  gated version. That is deliberate; do not treat it as a caching bug.
+- **`semver` is the update mechanism.** IDEs decide an update exists by comparing version strings, so
+  a version that does not move is invisible to everyone who already installed the plugin.
+
+**Provenance.** When your session sets the `x-batondeck-agent` header, the version records which agent
+submitted it, and a reviewer sees that in the Studio. It is a courtesy for the reviewer, not a
+security control — it changes nothing about the gate, and a version you author passes exactly the
+same scan and approval as one a person types by hand.
 
 ## Rules
 

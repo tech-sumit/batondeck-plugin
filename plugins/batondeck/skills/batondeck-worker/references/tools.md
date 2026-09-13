@@ -86,6 +86,34 @@ A **run** is a normal claimable child task linked to its parent by `runOf` (dist
 
 Reused unchanged for the actual work inside a run: `claim_task`/`claim_next`, `heartbeat_task`, `release_task`, `complete_task` (sets the run's `deliverable`), `get_task_context`.
 
+## Plugin Studio (org admins)
+Compose plugins for your org — skills, commands, hooks, prompts — and deliver them to your team's
+IDEs. Every version passes a scan and an org-admin approval before anyone receives it.
+- `create_plugin { name, description?, audiences?, targets? }` → `{ plugin }` — **org-admin permission**. Audiences gate who receives it (none = everyone in the org).
+- `add_plugin_file { pluginId, path, size }` → `{ file, draft }` — **org-admin permission**. Registers one file into the open draft, opening one if needed. Caps: 20MB/file, 5,000 files, 200MB/version.
+- `finalize_version { pluginId, semver }` → `{ version }` — **org-admin permission**. Freezes the draft and submits it to the gate; files become immutable.
+- `approve_version { pluginId, versionId }` → `{ version }` — **org-admin permission**. The approval decision — hooks in this version will run on your members' machines.
+- `yank_version { pluginId, versionId, reason }` → `{ version }` — **org-admin permission**. Stops serving it; cannot recall copies already installed.
+- `list_plugins {}` / `list_plugin_versions { pluginId }` / `get_plugin_version { pluginId, versionId }` — **org-admin permission**.
+- `set_surface_profile { mode }` / `get_surface_profile {}` — **org-admin permission**. `full` or `router` MCP surface for the org's agents.
+- `create_audience { name, members?, groupBindings? }` / `list_audiences {}` / `update_audience_membership { audienceId, addMembers?, removeMembers?, addGroups?, removeGroups? }` — **org-admin permission**. Audiences work with or without SSO: members are added by hand, group bindings are the optional IdP layer, membership is the union.
+- `add_git_destination { tier, remoteUrl?, branch, credential?, audiences? }` / `list_git_destinations {}` — **org-admin permission**. Where approved versions are delivered; credentials are stored encrypted and never returned.
+- `publish_version { pluginId, versionId, destinationId }` → `{ version }` — **org-admin permission**. Delivers an APPROVED version and tags it; refuses an existing tag.
+- `my_plugins {}` → `{ plugins }` — any org member. Which plugins are delivered to YOU.
+- **Asset registry (S9)** — reusable content, authored once and SELECTED into plugins. `create_registry_asset { assetId, type, name, description }` then `publish_asset_version { assetId, semver, files, connection? }` (immutable — a change is a new semver). `list_registry_assets { type?, scope? }` shows your org's assets and the BatonDeck-prebuilt catalog together; `get_registry_asset { scope, type, assetId, semver? }` returns one with its file content. `select_asset { pluginId, scope, type, assetId, semver?, deselect? }` puts a reference on the open draft — the bytes are copied in and scanned at `finalize_version`, so editing an asset never changes a version that already shipped. All **org-admin permission**; selection included, because an integration template provisions an MCP connection.
+- `set_knowledge_source { knowledgeProjectId }` — **org-admin permission** (and writer on the project named). Points the org at the project whose Chronicle is its knowledgebase; `null` clears it. / `read_org_knowledge { limit? }` → `{ knowledgeProjectId, pages }` — any org member.
+- `add_mcp_connection { name, url, mode, authMode, authHeader?, secret? }` / `list_mcp_connections {}` / `rotate_mcp_connection_secret { connectionId, secret, revokePrevious? }` — **org-admin permission**. Connect an internal MCP server: `direct` (your agents dial it; BatonDeck holds no credential) or `proxied` (relayed through BatonDeck). Credentials are stored encrypted and never returned; revoking a rotated secret takes effect within ~60 SECONDS, not instantly.
+- `call_mounted_tool { connectionName, tool, args? }` → `{ content, isError? }` — any org member. Calls a tool on a PROXIED connection. Request/response only: subscriptions and sampling are refused, because an upstream session opened on one core instance is invisible to the others.
+
+## Router surface (compact orgs)
+Orgs whose admin set the MCP surface to **router** expose a compact facade instead of every tool's
+schema: discovery costs a fraction of the full connect payload and full schemas load on demand.
+Nothing about authorization changes — the facade is a transport, and every dispatched call runs the
+real tool's own guards, limits and audit under its own name.
+- `find_tools { query? }` → `{ tools: [{ name, summary }] }` — search the full catalog by keyword; one-line summaries only. Requires an org-bound credential.
+- `get_tool_schema { name }` → `{ tool: { name, description, inputSchema, outputSchema? } }` — one tool's full contract, on demand. Requires an org-bound credential.
+- `invoke_tool { name, args? }` → `{ result }` — call any tool by name; the inner tool's authorization and error codes apply unchanged (a refusal arrives exactly as if you had called it directly). Cannot dispatch the facade itself. Requires an org-bound credential.
+
 ## On-call telemetry integrations (webhook ingestion → incident tickets)
 An **integration** is a signed webhook endpoint a telemetry source (Grafana, Alertmanager, Dynatrace, PagerDuty, Datadog, or a generic signed-JSON sender) posts alerts to. Each delivery becomes — or updates — an incident ticket on the target board and is routed to an on-call agent or broadcast to every live agent, whose doorbell rings through the normal wake path. Deliveries are deduplicated per alert fingerprint under one of three lifecycle modes.
 - `create_integration { projectId, name, source, boardId, columnId?, auth, routing, mapping?, lifecycle?, policy?, limits?, idempotencyKey? }` → `{ integration, secret?, shownOnce? }` — **structural role** (an integration is board configuration: it decides which telemetry mints tickets on that board and who gets woken). For `auth.mode:'hmac'` the server MINTS the webhook secret and returns it **exactly once** — store it immediately, it is never retrievable again. Pass `auth.externalSecret` when the source issues its own (PagerDuty), `auth.apiKey` for `api_key` mode (stored hashed) and for `basic` mode (HTTP Basic, key as the password — the only mode Google Cloud Monitoring can present), or `auth.jwt` for `jwt` mode. `'mtls'` is reserved and refused until the phase-2 load balancer exists. Paste the returned `endpointPath` into the source's webhook configuration.
