@@ -127,8 +127,8 @@ is the mutex), and the board's dependency tree gates what's workable in parallel
 
 For a standing autonomous setup, put sessions **on shift** instead of prompting them per batch. Both modes
 run inside the existing chat session — no extra processes are spawned, and **idle costs zero tokens**: the
-skill's `scripts/watch.sh` runs as a *background* task (worker: `wait_for_task` long-poll; master:
-`wait_for_updates` event long-poll — ~0 Firestore reads while parked), the session ends its turn, and the
+skill's `scripts/wake-wait.mjs` runs as a *background* task (it blocks on this session's Pub/Sub wake
+doorbell — 0 core calls and 0 Firestore reads while parked), the session ends its turn, and the
 harness wakes it only when there is work. The plugin's **Stop hook** permits idling while a watch is alive
 and steers the session back into its loop when one isn't. Workers honor each ticket's `modelHint` by
 dispatching the work to a subagent on the hinted model/effort (cheap models for mechanical tickets, strong

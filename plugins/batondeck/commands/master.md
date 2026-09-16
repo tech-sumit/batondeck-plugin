@@ -34,27 +34,30 @@ Setup:
 
 Supervision loop (repeat until the goal is shipped):
 
-1. **Wait for board events.** Two paths — pick by how you authenticated (same rule as
-   `/batondeck:worker` step 1).
+1. **Wait — arm the doorbell, then end your turn.** One path, on every auth mode (same as
+   `/batondeck:worker` step 1):
 
-   **(a) Plugin / browser OAuth — the default, and the only one that works here.** Call the
-   **`wait_for_updates` MCP tool** in a loop: `wait_for_updates { projectId, boardId, sinceCursor?,
-   timeoutSec: 50 }`. Supervising a sprint? Resume from the sprint's stored `eventCursor`
-   (`get_sprint` returns it) rather than starting blind. Otherwise the first call without
-   `sinceCursor` returns the current cursor immediately; carry that cursor forward and call again. It blocks SERVER-SIDE (~0 Firestore reads while parked)
-   and returns `{events: []}` with the cursor unchanged when the deadline passes.
+   ```
+   node "${CLAUDE_PLUGIN_ROOT}/skills/batondeck-worker/scripts/wake-wait.mjs" 3500
+   ```
 
-   **Do NOT reach for `scripts/watch.sh` on this path.** It shells out to `mcp.sh`, which needs
-   `BATONDECK_TOKEN` or a service-account gcloud principal. An OAuth session has NEITHER — the MCP
-   token lives inside Claude Code's MCP client and is not visible to Bash. The watch dies instantly,
-   and if you then end your turn you are waiting for a wake that will never arrive.
+   as a **background Bash task** (`run_in_background: true`), then **end your turn**. The plugin
+   started your session's listener at SessionStart; that command sleeps on its delivery file and
+   exits the moment a doorbell lands. Zero tokens while idle.
 
-   **(b) Headless / service account only.** With a real `BATONDECK_TOKEN` (or an activated service
-   account), start
-   `"${CLAUDE_PLUGIN_ROOT}/skills/batondeck-worker/scripts/watch.sh" events '{"projectId":"P-…","boardId":"B-…"}'`
-   as a **background Bash task** (`run_in_background: true`), then **end your turn** — the harness
-   wakes you when it exits with events, and that is the only way to get truly zero-token idle. Exit
-   3 = deadline; restart it.
+   **The doorbell carries no payload — by design — so do not ask it what happened. Read the BOARD.**
+   It is a contentless nudge (the channel has no authorization of its own, so board data must never
+   ride it). On waking:
+   - `next_task { projectId, boardId, includeInbox: true }` — the claimable pool PLUS the
+     REVIEW / BLOCKED / DEAD_LETTER buckets in one bounded call. This is your supervision surface.
+   - `list_notifications` — what was addressed to *you*: mentions, follow-ups, review requests.
+
+   That pair is also your **resync**: a doorbell survives ~10 minutes unheard, so anything missed
+   while you were away is found by reading state rather than replayed at you.
+
+   Woke on `signin-required`? The sign-in expired — tell the user to run
+   `npx -y mcp-remote https://mcp.batondeck.com/mcp`, then `mode.sh off`. On `unavailable` or a
+   repeating `detached`, the channel is down and your credentials are fine: report it, go off shift.
 
    Either way, a quiet spell (empty batch / exit 3) is a cue for a quick **health pass**
    (`reap_stale_leases`; `rank_tasks` for the frontier; if READY work sits unclaimed with no live

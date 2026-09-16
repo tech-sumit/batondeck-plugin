@@ -12,7 +12,7 @@ optionally the project/board. If you don't know the project/board, discover them
 Loop until your inbox is empty:
 
 1. **Find your work:** `next_task { projectId, boardId, assignee: "<your-name>" }` — the highest-priority
-   READY ticket routed to you, or `null` → stop. (`wait_for_task { …, assignee }` is the long-poll variant
+   READY ticket routed to you, or `null` → stop. (An assignment rings your doorbell, and this is the read
    if you'd rather block briefly for one to arrive.)
 2. **Claim it:** `claim_task { projectId, taskId }` → save the `leaseId`. Assignment is **advisory** — if you
    lose the race (`CONFLICT_LOCKED`), skip it and fetch the next.

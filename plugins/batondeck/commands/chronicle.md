@@ -26,20 +26,29 @@ The sweep (full procedure in the batondeck-chronicle skill — follow it, this i
    cannot fork it and chronicle the same tickets twice. **Read and write it with these tool calls
    yourself** — the shell helper needs `BATONDECK_TOKEN`, which a browser-OAuth session does not have
    in Bash.
-2. **Take the window — one call is one batch.**
-   `wait_for_updates { projectId, boardId, sinceCursor, timeoutSec: 1, limit: 20 }`, keeping
-   `task.completed` / `task.reopened` / `task.requeued` / `task.moved` with `data.to: "DONE"` (a
-   reopen after DONE is a supersession signal, not noise; the moved row is how an approval is seen at
-   all — `complete_task` fires `task.completed` at REVIEW entry and the REVIEW→DONE approval emits
-   only `task.moved`, so without it a ticket in REVIEW at anchor time is stranded forever). `limit` is the batch cap because the response carries **one cursor for the whole call**
-   — process this call's tickets in full, write its cursor, then decide whether to call again; there is
-   no cursor for "the 20th event" to write instead. `truncated: true` means you **missed** events
-   BEHIND this window (your cursor was older than the five-minute lookback), not that more remain —
-   sweep the batch and advance anyway (the floor is computed from request arrival, so holding the
-   cursor recovers nothing and re-derives the same window forever), then **report the gap**. No cursor
-   yet → `list_tasks { status: "DONE" }` for the backfill; the feed cannot serve history. That listing
-   is also how you deliberately close a gap, and it is all-or-nothing: cap it and you write **no**
-   cursor, because its anchor says "now". Nothing new is a legitimate no-op — stop and say so.
+2. **Take the window — one query, by ticket, not by event.**
+   `list_tasks { projectId, boardId, status: "DONE", updatedSince: "<cursor>", limit: 200 }`, paging
+   with the returned `nextCursor`.
+
+   **This replaced a cursor-paged event feed (`wait_for_updates`) that T-177 retired, and the new <!-- retired-tool-ok: the replaced mechanism, named so a stale cursor is recognisable -->
+   shape is strictly better for this job.** "Which tickets finished since my last sweep" is a question
+   about TASKS; asking the task collection answers it directly. Three traps the event version carried
+   simply do not exist here:
+   - no five-minute lookback clamp, so an old cursor is not silently truncated — the whole point of
+     the `truncated: true` warning that sweep had to reason about;
+   - no "one cursor for the whole call" hazard, because paging is by `nextCursor` over the tickets you
+     actually processed;
+   - no REVIEW-entry-versus-approval split. `complete_task` fired `task.completed` at REVIEW entry
+     while the REVIEW→DONE approval emitted only `task.moved`, so a ticket sitting in REVIEW at anchor
+     time was stranded forever. A ticket that is DONE is DONE, whichever tool got it there.
+
+   **The cursor is an ISO instant now, not an opaque `ts|id` token.** Write the newest `updatedAt` you
+   actually processed. The filter is INCLUSIVE at the boundary, so re-reading your own instant costs
+   one duplicate ticket (which merges to a no-op) rather than losing one.
+
+   A reopen after DONE is still a supersession signal — it shows up as the ticket's `updatedAt` moving
+   while its status is not DONE, so a swept ticket that has since left DONE is worth a second look.
+   Nothing new is a legitimate no-op — stop and say so.
 3. **Pull the evidence.** Two calls per ticket, and it has to be two: `get_task { projectId, taskId }`
    for `title`/`description`/`deliverable`/`artifacts`, and
    `get_task_context { projectId, taskId, include: ["items"] }` for the checkpoints. The context tool

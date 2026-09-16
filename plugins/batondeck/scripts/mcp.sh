@@ -84,9 +84,8 @@ hdr+=(-H "x-batondeck-source: agent")
 [ -n "${BATONDECK_AGENT:-}" ] && hdr+=(-H "x-batondeck-agent: ${BATONDECK_AGENT}")
 
 # Cached session + affinity-cookie jar, keyed by core URL + scope. Concurrent callers share them; a
-# stale entry is healed by the retry path below. Long-poll loops (watch.sh) set MCP_SESSION_SCOPE to
-# an isolated value: on the STATEFUL path, a parked long-poll and an interactive call overlapping on
-# one session can leave the long-poll's SSE stream unclosed after its response.
+# stale entry is healed by the retry path below. MCP_SESSION_SCOPE isolates a caller onto its own
+# cached session; nothing sets it since T-177 deleted watch.sh, its only setter.
 KEY="$(printf '%s|%s' "${CORE}" "${MCP_SESSION_SCOPE:-main}" | cksum | awk '{print $1}')"
 SFILE="${DIR}/sess-${KEY}"; JAR="${DIR}/jar-${KEY}"
 cj=(-c "${JAR}" -b "${JAR}")
@@ -152,7 +151,7 @@ except Exception:
 
 # Is a transport cut on THIS tool safe to retry? Only for read-only / idempotent tools — a mutation
 # that committed before the response was lost must NOT be re-issued (it would duplicate).
-case " next_task wait_for_task wait_for_updates rank_tasks search_tasks get_task get_board get_project get_transitions get_task_context list_tasks list_boards list_projects list_subtasks list_attachments list_comments list_follow_ups list_runs list_notifications read_memory get_skill_stats list_agent_sessions " in
+case " next_task rank_tasks search_tasks get_task get_board get_project get_transitions get_task_context list_tasks list_boards list_projects list_subtasks list_attachments list_comments list_follow_ups list_runs list_notifications read_memory get_skill_stats list_agent_sessions " in
   *" ${TOOL} "*) retry_transport=1 ;;
   *) retry_transport=0 ;;
 esac

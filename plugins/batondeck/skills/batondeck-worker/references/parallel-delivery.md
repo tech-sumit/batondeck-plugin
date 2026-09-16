@@ -149,7 +149,7 @@ list is empty.
 | A burst of known, independent tickets | **Inline orchestration** — one session spawns a worktree agent per ticket, then reviews and merges centrally. Simplest thing that works; the reviewing session keeps the whole picture. |
 | Work arriving over time, unknown shape | **Master + workers** — a master plans and supervises live board events, workers wait for assignments. Both idle at ~0 reads. |
 | One expensive, ambiguous ticket | **Runs** — race N attempts and pick a winner (`start_runs` → `list_runs` → `pick_run`). |
-| A ticket that fans out into children | **`orchestrate_subtasks`** + `wait_for_children` — creates the children, parks the parent at ~0 reads, wakes it when the last child is DONE. |
+| A ticket that fans out into children | **`orchestrate_subtasks`** — creates the children and parks the parent, assigned to you, so auto-unblock rings your doorbell when the last child reaches DONE. |
 
 Do not reach for a standing autonomous mode when a single supervised burst will do. Modes are for
 duration, not for parallelism — the board provides the parallelism either way.

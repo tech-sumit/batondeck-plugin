@@ -3,6 +3,9 @@ export declare const DEFAULT_MCP: string;
 export declare const DEFAULT_CORE: string;
 export declare const STS: string;
 export declare const HEARTBEAT_MS: number;
+/** T-177 — bounded re-attaches before a dead stream becomes a loud signin-required. */
+export declare const MAX_REATTACHES: number;
+export declare const MAX_TOTAL_REATTACHES: number;
 
 export interface TokenHit {
   token: string;
@@ -40,7 +43,8 @@ export interface SubscribeArgs {
 }
 
 export declare function claimsOf(jwt: string): Record<string, unknown>;
-export declare function findToken(opts?: { home?: string; issuer?: string; now?: () => number; fs?: FakeFs }): TokenHit | null;
+export declare function findToken(opts?: { home?: string; issuer?: string; now?: () => number; fs?: FakeFs; env?: Record<string, string | undefined> }): TokenHit | { error: string } | null;
+export declare function tokenProblem(reason: string, issuer: string): string;
 export declare function wakeSession(o: { fetch: typeof fetch; core?: string; token: string; agentId?: string }): Promise<WakeNames>;
 export declare function exchange(o: { fetch: typeof fetch; audience: string; token: string }): Promise<Exchanged>;
 export declare function deliver(o: { file: string; record: unknown; fs?: FakeFs; dir?: string }): void;

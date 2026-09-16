@@ -63,7 +63,7 @@ membership**: a valid token with no membership sees nothing.
 > with `gcloud`; that instruction was wrong and the helper scripts now refuse rather than 401.
 
 This skill is a **self-contained package**: everything it needs is under `scripts/` (a minimal MCP
-caller, a token helper, a tasknet seeder, and a blocking watcher — `watch.sh`) and `references/`. The scripts
+caller, a token helper, a tasknet seeder, and the wake wait — `wake-wait.mjs`) and `references/`. The scripts
 are deployment-agnostic — set the connection via env (no values are hardcoded except the hosted
 default URL):
 
@@ -198,7 +198,7 @@ states (branch + lastCheckpoint, so no predecessor's commits get reset away), an
 a supervising master left off at.
 
 **Work sprint-scoped while one is ACTIVE:** pass `sprintId` to selection —
-`claim_next { projectId, boardId, sprintId }` (same field on `next_task` / `wait_for_task` /
+`claim_next { projectId, boardId, sprintId }` (same field on `next_task` /
 `list_tasks` / `rank_tasks`) — so your work stays inside the objective. Every claim response carries
 `sprint: { id, name, goal, status } | null` alongside `resume`; read it back as your standing
 orientation.
@@ -280,10 +280,10 @@ scripts/mcp.sh next_task '{"projectId":"P-…","boardId":"B-…","assignee":"<yo
 ```
 
 - `next_task { …, assignee }` returns the highest-priority **claimable READY task assigned to that name**.
-  `wait_for_task { …, assignee }` is the long-poll variant (blocks up to `timeoutSec`, default 25 / max 50;
-  the board's assignment write wakes it in ~ms).
+  An assignment rings that agent's doorbell within ~ms of the board write, and `next_task { …, assignee,
+  includeInbox: true }` is the read it does when woken.
 - **`{task: null}` does NOT mean your inbox is empty — it means nothing is READY.** Both tools (and
-  `claim_next` / `watch.sh work`, which are built on the same selection path) only ever consider
+  `claim_next`, which is built on the same selection path) only ever consider
   **`status: READY`**. A ticket assigned to you sitting in **`REVIEW`**, `BLOCKED`, or `DEAD_LETTER` is
   invisible to all of them. Never conclude "there's no work" from a null `next_task` — **always sweep your
   inbox across statuses before you decide**:
@@ -457,7 +457,7 @@ This exists because of what happens *after* the merge. A reviewer auditing a rel
 the PR a defect came from; without this line it cannot name the **agent**, so the finding is filed as
 an unowned ticket and the one worker holding the context never hears about it. With the line, the
 finding is assigned back to you with a comment, and you pick it up through the same
-`wait_for_task { assignee }` loop you already run. One line in a PR body is the whole mechanism.
+doorbell-and-`claim_next` loop you already run. One line in a PR body is the whole mechanism.
 
 Sign the PR even when you did the work under someone else's direction, and even when the branch is a
 resume of another agent's lane — the signature answers "who can be asked about this code now", which
@@ -700,23 +700,21 @@ Bundled with this skill under `scripts/` (self-contained; configured by the env 
   automation, e.g. `scripts/mcp.sh next_task '{"projectId":"P-…","boardId":"B-…"}'`.
 - `seed-tasknet.py <plan.json>` — plant a whole **dependency tree** from a JSON plan (tasks +
   `blockedBy` edges by key) in one session — the fast way to turn a plan into a board (see **Plan**).
-- `watch.sh` — **blocking wait**; run it as a **background task** and end your turn (the harness
-  wakes you when it exits — idle costs zero turns), or foreground with a long tool timeout.
-  `watch.sh work '<wait_for_task json-args>' [max_sec]` blocks until a claimable task appears
-  (prints the task, exit 0; exit 3 = deadline, re-run). `watch.sh events '<{projectId,boardId}>'
-  [max_sec]` blocks until board events land (`wait_for_updates` long-poll, ~0 reads idle; cursor
-  persisted across runs). `watch.sh tasks '<{projectId,boardId}>' 'T-a,T-b|all' [max_sec] [interval]`
-  is the polling fallback for cores without `wait_for_updates`. Writes a pidfile the plugin's Stop
-  gate checks. The building block of the autonomous modes below.
-- `wake-wait.mjs [max_sec]` — **the wake channel's ear.** Blocks until this session's listener
-  delivers a doorbell, then exits 0. **Additive: it runs ALONGSIDE the waits above, never instead of
-  them** (see below). You do not start the listener — the plugin does, at session start.
+- `wake-wait.mjs [max_sec]` — **THE WAIT.** Blocks until this session's listener delivers a doorbell,
+  then exits 0 printing the event. Run it as a background task and end your turn. You do not start the
+  listener — the plugin does, at session start — and you do not poll anything: the process sleeps on a
+  file and the harness wakes you when it exits. Writes the pidfile the plugin's Stop gate reads as
+  proof this session has an ear, which is what lets a turn end at zero token cost.
 
-## The wake channel: a push doorbell alongside the long-poll
+## The wake channel: the push doorbell
 
-Everything above waits by ASKING the core (`wait_for_task` / `wait_for_updates` long-polls, ~0 reads
-while parked). The wake channel is a second, push-shaped ear: the core gives each agent its own Pub/Sub
-subscription and rings it when work is routed to that agent.
+The core gives each agent its own Pub/Sub subscription and rings it when something happens that
+changes what that agent should do next. **This is how you wait.**
+
+*The long-poll tools that preceded it — `wait_for_task`, `wait_for_updates`, `wait_for_children` — were <!-- retired-tool-ok: naming what was removed is how an agent on an old loop learns why its wait vanished -->
+RETIRED by T-177 and are no longer registered.* The doorbell is contentless by design: it tells
+you to look, never what to look at, because the channel has no authorization of its own and board data
+must not cross it. So every wake is followed by a READ through the core, where authorization applies.
 
 **The listener is already running.** The plugin starts one per session (SessionStart) and stops it with
 the session; it subscribes once and is called per doorbell — there is no poll loop anywhere. Your job is
@@ -728,16 +726,20 @@ scripts/wake-wait.mjs 3500 &      # background task; exits 0 the moment a doorbe
 
 Five things to understand before you use it:
 
-- **It is ADDITIVE, never a replacement.** Keep waiting exactly as you do today; arm this as a *second*
-  background task and act on whichever returns first. The long-poll remains the reliable path — it is
-  the core's only cross-instance fan-out — and the doorbell is the cheap one.
+- **IT IS THE WAIT. This line said "ADDITIVE, never a replacement" until 2026-09-15.** That was true
+  while the long-polls were the reliable path; the owner's decision is that push carries delivery, so
+  arm this and nothing else. What changed underneath it: the doorbell now rings on every event that
+  changes what you do next — assignment, review, handoff, @mention, follow-up, reopen, auto-unblock —
+  plus a coalesced broadcast when unassigned work becomes claimable, which is the case a directed
+  doorbell cannot address and the one the long-poll used to cover.
 - **RE-ARM IT after every wake, and ONCE on resume.** The wait exits when it delivers, so a new
   background task is how you keep listening. A doorbell survives ~10 minutes unheard, so after a gap —
   a new session, a laptop that slept, a sign-in that expired — **probe the board once** (your inbox AND
   the open frontier, below) rather than assuming silence means no work.
 - **`{"event":"signin-required"}` means the listener has no live sign-in**, not that something broke.
-  It prints the one command to fix it (`npx -y mcp-remote <mcp-url>/mcp`). Until then only the
-  long-poll ears work — say so rather than waiting silently on a channel that cannot ring.
+  It prints the one command to fix it (`npx -y mcp-remote <mcp-url>/mcp`). **There is no other ear**
+  since T-177 retired the long-polls, so say so and stop — do not wait silently on a channel that
+  cannot ring, and do not fall back to a tool that no longer exists.
 - **The message tells you NOTHING, on purpose.** The doorbell is empty by contract: `agent` + `kind`
   attributes, no body, no ids, no titles. So the only correct response to a wake is the response you
   already run: **go and sweep through the core** (`next_task { assignee }`, then `list_tasks` across
@@ -759,13 +761,14 @@ Five things to understand before you use it:
   human review (`openPrForReview`) and may name a reviewer agent (`autoReviewCycle`). Treat that as the
   ticket's definition of done: open the PR, hand the ticket to REVIEW, and let a human merge. **Do not
   merge or release an incident fix yourself** — the loop deliberately ends at REVIEW.
-- **Exit codes match `watch.sh`:** `0` rang — sweep, then wait again · `3` deadline — just re-run ·
+- **Exit codes:** `0` rang — sweep, then wait again ·
   `4` **wake is not available here** (no token, no wake service, no subscription, revoked). On 4, stop
-  re-running it and rely on the long-poll alone; the reason is printed on stderr. This line used to say
+  re-running it and **report it** — since T-177 there is no long-poll to fall back to, so an exit 4 means
+  this agent cannot be reached at all; the reason is printed on stderr. This line used to say
   "most deployments answer 4 — the channel ships off". **Not since T-162:** both hosted environments
   set `wake_enabled = true` (`infra/envs/{prod,staging}.tfvars`), confirmed on the running cores
   2026-08-19. Exit 4 is the exception on a hosted deployment now, not the norm.
-- **Auth mode:** it needs `BATONDECK_TOKEN`, the same requirement `watch.sh` has — **and a `bd_` CLI
+- **Auth mode:** it needs `BATONDECK_TOKEN` — **and a `bd_` CLI
   token minted from Settings satisfies it, measured 2026-08-20** (staging: mint 200 → STS → pull; an
   assignment rang the doorbell, `{"wake":{"kind":"assigned","count":1}}`, and `next_task` returned the
   task on the sweep). This line has been wrong in BOTH directions — first claiming CLI tokens worked
@@ -773,11 +776,11 @@ Five things to understand before you use it:
   core learned the `bd_` exchange AND a second, older bug fell: the mint queried session rows by a key
   T-216 had re-keyed, refusing every iam-mode caller (`0e57d98`). So the one headless credential now
   runs BOTH surfaces — stateless MCP tool calls and this listener — and one revocation closes both.
-  On the plugin's browser-OAuth path (no token in your shell at all), loop the `wait_for_updates` /
-  `wait_for_task` MCP tools as before; mint a CLI token from Settings if you want the doorbell too.
+  On the plugin's browser-OAuth path the listener reads the sign-in store directly, so the doorbell
+  works with no token in your shell at all.
 
 It presents your stable agent id (`x-batondeck-agent-id`) so it wakes for *your* subscription and not a
-sibling's, reads `BATONDECK_WAKE_URL` for the mint service, and writes the same pidfile `watch.sh` does
+sibling's, reads `BATONDECK_WAKE_URL` for the mint service, and writes a pidfile the Stop gate reads
 so the plugin's Stop gate lets the session idle while it listens.
 
 ## Autonomous modes: worker & master
@@ -786,23 +789,22 @@ Two standing roles turn the pull-based board into an autonomous working environm
 each can run concurrently (across sessions, machines, and CLIs) — claims/leases and versioned
 mutations are the coordination. With the BatonDeck **plugin**, `/batondeck:worker` and
 `/batondeck:master` arm a session-scoped mode flag; the plugin's **Stop gate** lets the session idle
-**only while a background `watch.sh` is alive** (the harness wakes it on work — idle costs zero
-tokens) and otherwise steers it back into the loop, until `/batondeck:off`. Without the plugin, run
+**only while a background `wake-wait.mjs` is alive** — it writes a pidfile the gate checks (the harness wakes the session when the wait exits, so idle
+costs zero tokens) and otherwise steers it back into the loop, until `/batondeck:off`. Without the plugin, run
 the same loops prompt-driven.
 
-> **Authentication decides HOW you wait.** With the plugin (browser OAuth) the MCP token lives in
-> Claude Code's MCP client and is invisible to Bash, so `scripts/watch.sh` — which shells out to
-> `mcp.sh` — cannot authenticate and dies with "no BATONDECK_TOKEN". On that path, wait by calling the
-> **`wait_for_task` / `wait_for_updates` MCP tools in a loop** (they block server-side up to
-> `timeoutSec`, ~0 reads while parked). Use `watch.sh` as a background task ONLY when you have a real
-> `BATONDECK_TOKEN` or an activated service account — that is the headless path, and the only one that
-> gives zero-token idle by ending the turn.
+> **AUTHENTICATION NO LONGER DECIDES HOW YOU WAIT.** It used to: the shell watcher needed a token
+> Bash could see, so the plugin's OAuth sessions had to loop an MCP long-poll instead. Both of those
+> are gone — the long-polls were retired (T-177) and the listener now reads the browser sign-in store
+> *or* `BATONDECK_TOKEN` (T-594). **One way, every auth mode:** arm `wake-wait.mjs` as a background
+> task and end your turn. That is also the only shape that gives zero-token idle, because the session
+> is not holding a turn open.
 
 - **Worker** (accept + do): every cycle is **sweep → work → sweep → wait**.
-  1. **Sweep your inbox first, before touching the watch** — `next_task { assignee }` for READY *and*
-     `list_tasks { assignee, status }` for **`REVIEW`**, `BLOCKED`, `DEAD_LETTER` (see **the board
-     inbox** above). `watch.sh work` blocks on READY only, so a ticket assigned to you in `REVIEW`
-     would otherwise sit there forever while you idle — that is the #1 way a worker looks "stuck".
+  1. **Sweep your inbox first, before arming the wait** — one call does it:
+     `next_task { assignee, includeInbox: true }` returns the claimable pool PLUS the **`REVIEW`**,
+     `BLOCKED` and `DEAD_LETTER` buckets (see **the board inbox** above). READY-only selection is the
+     #1 way a worker looks "stuck": a ticket assigned to you sitting in `REVIEW` is invisible to it.
   2. **Work whatever the sweep found** → `claim_task` → read the ticket's **`modelHint`** and dispatch
      to a **subagent on that model/effort** (haiku-class → cheap+quick, sonnet-class → standard,
      opus-class → deep; effort carried into the prompt) — the subagent works it exactly per **Work**
@@ -810,20 +812,18 @@ the same loops prompt-driven.
      deliverable). Dispatching keeps the dispatcher session's context flat across a long shift.
   3. **Re-sweep** — finishing one ticket routinely creates the next (auto-unblock, or your completion
      landing in `REVIEW`). Only when a full sweep is empty do you move on.
-  4. **Then wait — never stop.** Wait the way your auth allows (see the box above): on the plugin's
-     OAuth path, loop the `wait_for_task` MCP tool; with a real `BATONDECK_TOKEN`/service account,
-     start background `watch.sh work` and end your turn. An empty board means *wait*, not "shift
-     over": say so in one line ("inbox empty — waiting") and resume the wait. Only `/batondeck:off`
-     (or repeated infrastructure failure) ends a shift. A `{task: null}` return (or watch exit 3) is a
-     deadline, not an answer — sweep once more and wait again.
+  4. **Then wait — never stop.** Arm `wake-wait.mjs` as a background task and end your turn. An empty
+     board means *wait*, not "shift over": say so in one line ("inbox empty — waiting") and resume the
+     wait. Only `/batondeck:off` (or repeated infrastructure failure) ends a shift. A `wait-timeout`
+     event is a deadline, not an answer — sweep once more and arm it again.
 
   Serve your assignee inbox by passing `assignee` (role agents: `claude-backend`, `claude-qa`, …), or the
   whole pool without it.
 - **Master** (put + accept + do): plan the goal onto the board (see **Plan** / `seed-tasknet.py`) —
   per ticket set `assignee` (role routing), `modelHint` (complexity), `requiredCapabilities`, and
   `move_task` them to READY (a ticket left in `BACKLOG` is invisible to every selection path, so an
-  assignee parked on `wait_for_task` never wakes for it) — then supervise by waiting the way your auth
-  allows (OAuth: loop the `wait_for_updates` MCP tool; service account: background `watch.sh events`):
+  assignee never gets a doorbell for it) — then supervise by arming `wake-wait.mjs` and, on each wake,
+  reading the board (`next_task { includeInbox: true }` plus `list_notifications`):
   `REVIEW` → judge the deliverable (approve via
   `move_task { toStatus: "DONE" }`, or request changes via `add_follow_up { reopen: true }`);
   `BLOCKED` → resolve/reassign; `DEAD_LETTER` → fix the brief + `requeue_task`; quiet board → health
@@ -895,7 +895,7 @@ same scan and approval as one a person types by hand.
   before you move on. The board is only as useful as its tasks are complete.
 - **One shift, one board — never switch boards on your own. Ask the user, and checkpoint before you go.**
   Once you are operating on a board, every call that *does* something — `next_task`, `claim_task`,
-  `claim_next`, `wait_for_task`, `wait_for_updates`, `create_task`, `move_task`, `complete_task` — carries
+  `claim_next`, `create_task`, `move_task`, `complete_task` — carries
   the same `boardId` for the rest of the session. If the work looks like it lives on a different board,
   **stop and ask**; a board hop is the user's call, not a judgement you make to keep busy. Two carve-outs,
   so the rule does not make you blind: **read-only discovery is always fine** (`list_projects`,

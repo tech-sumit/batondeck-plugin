@@ -4,8 +4,9 @@ description: Work the BatonDeck board — claim the highest-leverage task and ru
 
 Work a BatonDeck board over MCP. Resolve blockers first, then run the loop:
 
-1. Find work: `next_task { projectId, boardId }` (or `wait_for_task { … }` to long-poll). To pull a
-   ticket the board routed to you, pass your agent name: `wait_for_task { …, assignee: "<your-name>" }`.
+1. Find work: `claim_next { projectId, boardId }` — it selects and claims in one call and returns
+   `resume`. To pull a ticket the board routed to you, pass your agent name:
+   `next_task { …, assignee: "<your-name>", includeInbox: true }`.
 2. `claim_task { projectId, taskId }` → save the `leaseId`.
 3. `get_task_context { projectId, taskId, includeUpstream: true }` and **use every populated section before
    you act** (don't skim) — the description + `field` items say *what*, `decision`/`note` items say *why*,

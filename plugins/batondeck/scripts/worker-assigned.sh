@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # batondeck-worker skill — a single NAMED worker, bound to a running agent's lifetime.
 #
-# It long-polls for tasks the board ROUTED to this agent (task.assignee == ASSIGNEE), claims each, and
-# hands it to AGENT_CMD. Unlike worker.sh (which drains a finite board then exits), it stays up waiting
+# It BLOCKS ON THIS AGENT'S WAKE DOORBELL for tasks the board ROUTED to it (task.assignee ==
+# ASSIGNEE), claims each, and hands it to AGENT_CMD. The doorbell carries no payload, so a wake is
+# followed by a read (`next_task { assignee, includeInbox }`) — the inbox half matters, because a
+# doorbell also fires for a ticket of yours parked in REVIEW / BLOCKED / DEAD_LETTER. Unlike worker.sh (which drains a finite board then exits), it stays up waiting
 # for *future* assignments — but ONLY while the agent is alive:
 #   • it refuses to start if the agent isn't running, and
 #   • it exits when the agent process goes away — a watchdog tears it down within ~WATCH_SECS, and it
@@ -20,7 +22,7 @@
 #   AGENT_PID  the (same-user) process whose lifetime bounds this worker (default: the parent, $PPID). The
 #              worker dies when it exits. Launching from a short-lived Claude Code SessionStart hook? Pass
 #              the *session* PID explicitly — $PPID would be the hook, which exits at once.
-#   WAIT_SECS  long-poll window, clamped to 1..50 (default 20).   WATCH_SECS  agent-liveness poll (default 2).
+#   WAIT_SECS  doorbell wait window, clamped to 1..50 (default 20).   WATCH_SECS  agent-liveness poll (default 2).
 #   plus the connection env mcp.sh actually reads: BATONDECK_TOKEN / BATONDECK_CORE_URL (their
 #   CONDUCTOR_* spellings still work). You must SUPPLY BATONDECK_TOKEN — an access token issued by
 #   https://mcp.batondeck.com. Nothing mints one: the core rejects gcloud-minted Google ID tokens on
@@ -82,14 +84,19 @@ fi
 
 # Build JSON args with python3 (never string interpolation) so quotes/specials in a name or id can't
 # corrupt or inject the request. The wait args are static; recompute claim args per task.
-WF_ARGS="$(BATONDECK_PROJECT="$BATONDECK_PROJECT" BATONDECK_BOARD="$BATONDECK_BOARD" ASSIGNEE="$ASSIGNEE" WAIT_SECS="$WAIT_SECS" \
-  python3 -c 'import json,os;print(json.dumps({"projectId":os.environ["BATONDECK_PROJECT"],"boardId":os.environ["BATONDECK_BOARD"],"assignee":os.environ["ASSIGNEE"],"timeoutSec":int(os.environ["WAIT_SECS"])}))')"
+# T-177: the doorbell carries NO payload, so the wait no longer returns the task — it only says
+# "look". These are the args for the READ that follows a wake. `includeInbox` matters: a doorbell also
+# fires for a ticket of yours parked in REVIEW / BLOCKED / DEAD_LETTER, which a READY-only selection
+# would miss entirely, and the worker would then wake and find "nothing" on every such event.
+WF_ARGS="$(BATONDECK_PROJECT="$BATONDECK_PROJECT" BATONDECK_BOARD="$BATONDECK_BOARD" ASSIGNEE="$ASSIGNEE" \
+  python3 -c 'import json,os;print(json.dumps({"projectId":os.environ["BATONDECK_PROJECT"],"boardId":os.environ["BATONDECK_BOARD"],"assignee":os.environ["ASSIGNEE"],"includeInbox":True}))')"
 
-POLL=""; OUT=""; ERR=""; WATCH=""
+POLL=""; OUT=""; ERR=""; WATCH=""; LISTENER=""
 shutdown() {
   trap - TERM INT EXIT
   if [ -n "$POLL" ]; then pkill -P "$POLL" 2>/dev/null; { kill "$POLL" && wait "$POLL"; } 2>/dev/null; fi   # reap mcp.sh + its curl, quietly
   if [ -n "$WATCH" ]; then pkill -P "$WATCH" 2>/dev/null; kill "$WATCH" 2>/dev/null; fi                     # reap the watchdog + its sleep
+  if [ -n "$LISTENER" ]; then kill "$LISTENER" 2>/dev/null; fi                                             # and this daemon's own wake listener
   [ -n "$OUT" ] && rm -f "$OUT" 2>/dev/null
   [ -n "$ERR" ] && rm -f "$ERR" 2>/dev/null
   return 0
@@ -103,14 +110,35 @@ trap 'shutdown' EXIT
 ( while agent_alive; do sleep "$WATCH_SECS"; done; kill -TERM "$$" 2>/dev/null ) &
 WATCH=$!
 
+# T-594/T-177: this daemon owns its OWN listener. The plugin starts one per Claude Code session from a
+# SessionStart hook, but a standalone headless worker has no such hook — so without this it would block
+# on a delivery file nobody ever writes. The listener reads BATONDECK_TOKEN (T-594), which is the same
+# credential mcp.sh already needs, so this adds no new secret.
+export BATONDECK_SESSION_ID="worker-${ASSIGNEE}-$$"
+WAKE_DIR="${BATONDECK_STATE_DIR:-$HOME/.batondeck}"
+mkdir -p "${WAKE_DIR}/wake"
+node ./wake-listener.cjs >"${WAKE_DIR}/wake-${BATONDECK_SESSION_ID}.log" 2>&1 &
+LISTENER=$!
+sleep 1
+if ! kill -0 "$LISTENER" 2>/dev/null; then
+  echo "[worker:$ASSIGNEE] wake listener failed to start — see ${WAKE_DIR}/wake-${BATONDECK_SESSION_ID}.log" >&2
+  exit 1
+fi
+
 echo "[worker:$ASSIGNEE] up — bound to agent PID ${AGENT_PID}; waiting for work routed to ${ASSIGNEE} on ${BATONDECK_BOARD}." >&2
 fails=0
 while agent_alive; do
   OUT="$(mktemp)"; ERR="$(mktemp)"
-  ./mcp.sh wait_for_task "$WF_ARGS" >"$OUT" 2>"$ERR" &
+  # BLOCK ON THE DOORBELL, then read. Two processes where there used to be one long-poll: the wait
+  # sleeps on the listener's delivery file (zero core calls), and only a real wake costs a query.
+  node ../skills/batondeck-worker/scripts/wake-wait.mjs "$WAIT_SECS" >/dev/null 2>&1 &
   POLL=$!
   wait "$POLL"; rc=$?   # interruptible: the TERM trap fires here on agent-stop / SessionEnd
   POLL=""
+  if [ "$rc" -eq 0 ] && agent_alive; then
+    # A wake (or the wait's own timeout) — ask the board what is actually there.
+    ./mcp.sh next_task "$WF_ARGS" >"$OUT" 2>"$ERR"; rc=$?
+  fi
   if ! agent_alive; then rm -f "$OUT" "$ERR"; OUT=""; ERR=""; break; fi   # agent died during the wait
   if [ "$rc" -ne 0 ]; then
     # The poll itself failed (bad/expired token, 5xx, session error) — back off so a persistent problem
@@ -124,7 +152,7 @@ while agent_alive; do
   fails=0
   task="$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));t=d.get("task");print(t["id"] if t else "")' "$OUT" 2>/dev/null || true)"
   rm -f "$OUT" "$ERR"; OUT=""; ERR=""
-  [ -z "$task" ] && continue          # clean long-poll timeout — nothing assigned right now; poll again
+  [ -z "$task" ] && continue          # woke, swept, found nothing assigned right now; wait again
   agent_alive || break                # re-check just before claiming (shrink the agent-died TOCTOU window)
   CL_ARGS="$(BATONDECK_PROJECT="$BATONDECK_PROJECT" TASK="$task" \
     python3 -c 'import json,os;print(json.dumps({"projectId":os.environ["BATONDECK_PROJECT"],"taskId":os.environ["TASK"]}))')"

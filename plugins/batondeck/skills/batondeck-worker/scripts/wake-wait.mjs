@@ -10,7 +10,7 @@
  * Dependency-free by design: it ships as plain node, never bundled.
  * Usage: node wake-wait.mjs [maxSeconds]   (default 3600)
  */
-import { existsSync, statSync, openSync, readSync, closeSync, watch } from 'node:fs';
+import { existsSync, statSync, openSync, readSync, closeSync, watch, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -48,6 +48,38 @@ const woke = (lines) => {
   for (const h of hits) process.stdout.write(h + '\n');
   return true;
 };
+
+/**
+ * *** THE PIDFILE IS WHAT LETS THE SESSION GO IDLE. ***
+ *
+ * The plugin's Stop gate blocks turn-end while worker/master mode is armed UNLESS it can see a live
+ * "ear" for this session — otherwise an agent that ended its turn without arming a wait would sleep
+ * forever with nobody to wake it. That proof used to be `watch.sh`'s pidfile; with the long-poll gone,
+ * THIS process is the ear, so it has to leave the same evidence or the gate can never allow a
+ * zero-token idle and every shift turn ends in a block-then-circuit-breaker stutter.
+ *
+ * Keyed per (session, pid) like its predecessor, so two waits in one session cannot clobber each other,
+ * and removed on every exit path — including the timeout — because a stale pidfile would tell the gate
+ * an ear exists when none does, which is the more dangerous direction.
+ */
+const stateDir = process.env['BATONDECK_STATE_DIR'] || join(homedir(), '.batondeck');
+const pidFile = join(stateDir, `wake-wait-${sid}-${process.pid}.pid`);
+try {
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(pidFile, String(process.pid));
+} catch {
+  // Best-effort: a wait that cannot record itself still WAITS correctly. The only cost is that the
+  // gate will block once more before its circuit breaker lets the turn end.
+}
+const dropPid = () => {
+  try {
+    unlinkSync(pidFile);
+  } catch {
+    // already gone
+  }
+};
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { dropPid(); process.exit(0); });
+process.on('exit', dropPid);
 
 const done = (code) => process.exit(code);
 const timer = setTimeout(() => {

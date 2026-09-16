@@ -51,7 +51,7 @@ clones, and two machines would then chronicle the same tickets twice.
 **Incremental (you have a cursor). ONE CALL IS ONE BATCH:**
 
 ```
-wait_for_updates { projectId, boardId, sinceCursor: "<cursor>", timeoutSec: 1, limit: 20 }
+list_tasks { projectId, boardId, status: "DONE", updatedSince: "<cursor>", limit: 200 }
 ```
 
 Keep the events whose `type` is `task.completed`, `task.reopened` or `task.requeued`, **plus any
@@ -114,8 +114,7 @@ list_tasks { projectId, boardId, status: "DONE", limit: 200 }
 ```
 
 Page with the returned `cursor` if there are more. Then get an anchor for next time by calling
-`wait_for_updates { projectId, boardId, timeoutSec: 1 }` with no `sinceCursor` and keeping its
-`cursor`. Note what genesis does not see: `task.reopened` / `task.requeued` are event-only signals, so
+the newest `updatedAt` among the DONE tickets you just listed, and keep THAT as the cursor. Note what genesis does not see: `task.reopened` / `task.requeued` are event-only signals, so
 a first sweep chronicles DONE tickets and nothing else. Tickets sitting in REVIEW at that moment are
 not in the listing either — the moved-into-DONE row of the incremental keep set is what catches them,
 when their approval lands after the anchor. On a cursor written by a version of this skill that
@@ -405,8 +404,8 @@ later merges is a no-op (the `tasks:` triple is already in the tree). A sweep PR
 is the one way to lose repo records after the cursor moved — treat closing one as deleting records;
 the recovery is the deliberate DONE-listing pass.
 
-The cursor is the one from the `wait_for_updates` call — never one from a later call whose tickets
-you have not swept (step 2). If the emit, any ingest, or the PR failed, leave the cursor alone and
+The cursor is the newest `updatedAt` you actually PROCESSED — never one from a later page whose
+tickets you have not swept (step 2). If the emit, any ingest, or the PR failed, leave the cursor alone and
 say which. On the genesis / `truncated` path, write the anchor only if you swept the whole DONE
 backlog; if you capped, write nothing. That ordering is the whole idempotency story:
 

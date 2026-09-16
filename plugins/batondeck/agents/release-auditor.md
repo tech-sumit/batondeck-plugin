@@ -484,7 +484,7 @@ add_comment { projectId, taskId, body: "<why this is yours, and what closes it>"
 `create_task` takes no `assignee`, so this is a second call — use the `version` the create returned.
 
 **Why assignment and not a mention.** The board is pull-based: an assigned ticket flows straight back
-into the loop that agent already runs (`wait_for_task { assignee }`), so the finding reaches the one
+into the loop that agent already runs (its doorbell, then `claim_next`), so the finding reaches the one
 worker still holding the context. Nothing new has to be built or watched.
 
 The comment is the handover, so write it for someone who has forgotten this code: what is wrong, **which
