@@ -15,6 +15,17 @@ case "${1:?usage: mode.sh worker|master|off [note]}" in
   worker|master)
     printf '%s\n%s\n' "$1" "${2:-}" > "${f}"
     echo "mode=$1 armed (${f}) — /batondeck:off to disarm"
+    # SAY SO WHEN THE SESSION ID WAS GUESSED. This script gets no hook payload, so with
+    # BATONDECK_SESSION_ID absent it resolves through the shared pin — and with two sessions in one
+    # state dir that pin can name the OTHER one. Measured: session A ran `mode.sh worker` and armed
+    # `mode-B`; A's own gate then read `mode-A`, found nothing and let the turn end. A silently
+    # unarmed, B armed without asking. The flag file is printed above, so the operator can see which
+    # session was armed; this line tells them the value was not authoritative.
+    if [ "${BD_SID_SRC:-}" = "pin" ]; then
+      echo "warning: session id '${sid}' came from the shared pin, not this session's environment." >&2
+      echo "         If another BatonDeck session is live in the same state dir, this may have armed" >&2
+      echo "         THAT session. Give each session its own BATONDECK_STATE_DIR to make this exact." >&2
+    fi
     ;;
   off)
     rm -f "${f}"

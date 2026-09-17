@@ -56,7 +56,19 @@ pidf="$state/listener-$SID.pid"
 # Idempotent: a listener already running for this session? do nothing.
 if [ -f "$pidf" ] && kill -0 "$(cat "$pidf" 2>/dev/null)" 2>/dev/null; then exit 0; fi
 
-BATONDECK_PROJECT="$PROJECT" BATONDECK_BOARD="$BOARD" ASSIGNEE="$NAME" AGENT_CMD="$CMD" AGENT_PID="$SID" \
+# *** AGENT_PID IS A PID, NOT A SESSION KEY. *** worker-assigned.sh does `kill -0 "$AGENT_PID"` to
+# decide whether the agent it serves is still alive, and refuses to start when that fails. Passing the
+# session id here — a UUID — made that check fail ALWAYS, so the opt-in assigned-task listener refused
+# to start 100% of the time for everyone who configured it ("no agent running (PID <uuid>)").
+# ${AGENT_PID:-$PPID} is what this line passed before $SID stopped being a PID, so this restores the
+# original value rather than inventing one.
+# $SID is NOT passed on: worker-assigned.sh owns its own session namespace and overwrites the variable
+# unconditionally (`export BATONDECK_SESSION_ID="worker-${ASSIGNEE}-$$"`, worker-assigned.sh:122)
+# because it is a headless worker with its own delivery file, not this interactive session. Passing it
+# would be dead config that reads as if it did something. $SID's job here is the pidfile and log names,
+# which listener-stop.sh must derive IDENTICALLY — hence the shared snippet on both sides.
+BATONDECK_PROJECT="$PROJECT" BATONDECK_BOARD="$BOARD" ASSIGNEE="$NAME" AGENT_CMD="$CMD" \
+  AGENT_PID="${AGENT_PID:-$PPID}" \
   nohup "$here/worker-assigned.sh" >"$state/listener-$SID.log" 2>&1 &
 echo $! > "$pidf"
 echo "[batondeck] task listener started for ${NAME} (pid $!, session $SID) — log: $state/listener-$SID.log" >&2

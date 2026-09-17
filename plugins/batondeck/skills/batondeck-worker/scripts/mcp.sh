@@ -115,6 +115,27 @@ BD_AGENT_NAME=""
 # the caller outright while agent-id.sh (no `set -e`) degraded quietly — byte-identical text,
 # different behaviour.
 BD_PREFIX="$(printf '%s' "${BD_PREFIX}" | bd_sanitize 24)" || BD_PREFIX=""
+
+# *** STRIP CONTROL BYTES FROM ANY CALLER-SUPPLIED VALUE THAT BECOMES AN HTTP HEADER. ***
+# Measured on the wire, curl 8.7.1: `-H "x-batondeck-agent: evil<CR><LF>x-injected: yes"` is emitted
+# as TWO headers, with the injected line landing BEFORE the legitimate one. Both variables reach a
+# header verbatim in three producers (mcp.sh's curl, cursor-mcp.sh's `mcp-remote --header`, and
+# agent-id.sh --headers' JSON, which the client decodes back to a literal LF). Cleaned ONCE here, in
+# the block every producer carries byte-identically, rather than per producer — sanitizing one of
+# three places is how the derived name became inconsistent in the first place.
+#
+# SCOPE, deliberately understated: this is a CORRECTNESS fix, NOT a privilege fix. mcp.sh runs with the
+# caller's OWN environment, so anyone who can set these could add `-H` directly; every header reachable
+# this way is already documented caller-settable and untrusted (src/security/signals.ts:212); and Node's
+# llhttp rejects control bytes in a header VALUE, so the value path was never the exposure. What this
+# buys is that a name with a stray newline becomes a clean name instead of two headers.
+#
+# CONTROL BYTES ONLY — NOT bd_sanitize. A display name legitimately contains spaces ("Claude Worker 1"
+# is a documented ASSIGNEE shape, plugin/scripts/listener-start.sh), and the full sanitizer would
+# corrupt honest input and break the exact-name match the doorbell resolves on.
+bd_hdr_safe() { LC_ALL=C tr -d '\000-\037\177'; }
+[ -z "${BATONDECK_AGENT:-}" ]    || BATONDECK_AGENT="$(printf '%s' "${BATONDECK_AGENT}" | bd_hdr_safe)"
+[ -z "${BATONDECK_AGENT_ID:-}" ] || BATONDECK_AGENT_ID="$(printf '%s' "${BATONDECK_AGENT_ID}" | bd_hdr_safe)"
 [ -n "${BD_PREFIX}" ] || BD_PREFIX="mcp"
 # An MCP client that does not expand `${CLAUDE_PROJECT_DIR}` hands the literal string through, so
 # anything still carrying a `${` counts as ABSENT and we fall back — env var, then cwd.
@@ -134,7 +155,14 @@ if [ -n "${BD_GIT_DIR}" ] && [ "$(basename "$(dirname "${BD_GIT_DIR}")" 2>/dev/n
   BD_WT_SUM="$(printf '%s' "${BD_GIT_DIR}" | cksum | awk '{print $1}')" || BD_WT_SUM=""
   if [ -n "${BD_WT}" ] && [ -n "${BD_WT_SUM}" ]; then
     BD_ID_FILE="${BD_DIR}/agents/${BD_WT}-${BD_WT_SUM}"
-    BD_AGENT_NAME="${BD_PREFIX}-${BD_WT}"
+    # *** CAP THE COMPOSED NAME, NOT JUST ITS PARTS — THE PIN IS READ BACK AT 64. ***
+    # BD_PREFIX caps at 24 and BD_WT at 40, so this composes to at most 65; the .name pin is written
+    # UNCAPPED and read back through `bd_sanitize 64`. At 65 chars that made run 1 present a 65-char
+    # name and run 2+ a 64-char one for the same worktree — and the doorbell resolves by EXACT display
+    # name (src/wake/publisher.ts -> findLiveAgentSessionsByName), so those are two different agents.
+    # A pin that changes the value it pins is the failure it exists to prevent. Capping here makes the
+    # write and the read agree by construction, and every consumer inherits one value.
+    BD_AGENT_NAME="$(printf '%s-%s' "${BD_PREFIX}" "${BD_WT}" | bd_sanitize 64)" || BD_AGENT_NAME=""
   fi
 fi
 mkdir -p "$(dirname "${BD_ID_FILE}")" 2>/dev/null || true

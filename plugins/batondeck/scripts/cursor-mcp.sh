@@ -39,7 +39,11 @@ aid="$("$(dirname "$0")/agent-id.sh" "${bd_proj}" 2>/dev/null)"
 # (src/wake/publisher.ts -> findLiveAgentSessionsByName), and with no name header the server falls back
 # to the MCP client's own name — one string shared by every worktree. `--name` is the same value the
 # plugin's headersHelper sends, so both producers present one identity.
-bd_name="${BATONDECK_AGENT:-$("$(dirname "$0")/agent-id.sh" --name "${bd_proj}" 2>/dev/null)}"
+# ONE producer of the name, not two. `--name` already prints ${BATONDECK_AGENT:-${BD_AGENT_NAME}},
+# so re-implementing that precedence here made this the only producer whose value skipped the shared
+# block's control-byte strip and its 64-char cap — the same "several producers, each re-deriving it"
+# shape the RCA of this PR named. Ask the helper; do not reconstruct its answer.
+bd_name="$("$(dirname "$0")/agent-id.sh" --name "${bd_proj}" 2>/dev/null)"
 [ -n "${bd_name}" ] && args+=(--header "x-batondeck-agent: ${bd_name}")
 
 exec npx -y mcp-remote "${args[@]}"
