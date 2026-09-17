@@ -31,6 +31,11 @@
 # Assignment is advisory — an assigned task is still claimable by anyone, so we claim promptly and wait
 # for the next if we lose the race. (PID reuse is a theoretical risk for very short-lived agents.)
 set -uo pipefail
+# The checkout the USER launched us from, captured BEFORE we cd into the plugin install dir. The
+# agent identity is keyed on that checkout; resolving it after this cd names the INSTALL directory,
+# which is never a linked worktree (it is a plugin cache dir, or at best a main checkout) and so
+# yields the legacy SHARED id for every worker. Two workers in two worktrees then present one id.
+BD_LAUNCH_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 cd "$(dirname "$0")"
 
 # ── Opt-out switch ────────────────────────────────────────────────────────────────────────────────
@@ -117,6 +122,24 @@ WATCH=$!
 export BATONDECK_SESSION_ID="worker-${ASSIGNEE}-$$"
 WAKE_DIR="${BATONDECK_STATE_DIR:-$HOME/.batondeck}"
 mkdir -p "${WAKE_DIR}/wake"
+# Same reason as wake-start.sh: the listener picks its subscription from BATONDECK_AGENT_ID, and
+# with per-worktree identity an unset one attaches to a sibling worktree's channel.
+# NEVER export an EMPTY id: the listener drops the header when the value is blank, which is
+# byte-for-byte the pre-fix misroute, and exporting blank ALSO overrides mcp.sh's own correct
+# per-worktree resolution (`id="${BATONDECK_AGENT_ID:-}"`) — so a failure here would silently
+# corrupt the tool-call path too. Resolve, then export only if non-empty.
+bd_aid="${BATONDECK_AGENT_ID:-$(bash "$(dirname "$0")/agent-id.sh" "${BD_LAUNCH_DIR}" 2>/dev/null)}"
+if [ -n "${bd_aid}" ]; then export BATONDECK_AGENT_ID="${bd_aid}"
+else echo "[worker:$ASSIGNEE] could not resolve an agent id for ${BD_LAUNCH_DIR} — the listener would attach to the wrong session; not exporting a blank id" >&2; fi
+# *** THE NAME MATTERS AS MUCH AS THE ID, AND IT IS THE HALF THAT WAS MISSING. ***
+# ASSIGNEE is contractually the name the board assigns (see the header) — but it was never exported, so
+# the `./mcp.sh` calls below ran with cwd = the install dir, computed an EMPTY BD_AGENT_NAME, and sent no
+# `x-batondeck-agent` header. The core then defaults agentName to 'agent' (src/tools/common.ts) and
+# REWRITES the session row in place on every poll (src/data/firestore-store.ts), so this worker renamed
+# itself to 'agent' continuously while `findLiveAgentSessionsByName` (src/wake/publisher.ts) — the ONLY
+# lookup the assignment doorbell uses — matched nothing. Right id, unreachable by name: the ticket routed
+# here never rang.
+export BATONDECK_AGENT="${BATONDECK_AGENT:-$ASSIGNEE}"
 node ./wake-listener.cjs >"${WAKE_DIR}/wake-${BATONDECK_SESSION_ID}.log" 2>&1 &
 LISTENER=$!
 sleep 1

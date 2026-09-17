@@ -45,7 +45,11 @@ NAME="$(get ASSIGNEE)"; CMD="$(get AGENT_CMD)"
 # Opt-in: only run when fully configured. Missing config = stay idle (no noise, no error).
 [ -n "$PROJECT" ] && [ -n "$BOARD" ] && [ -n "$NAME" ] && [ -n "$CMD" ] || exit 0
 
-SID="${AGENT_PID:-$PPID}"   # tie to the session (a hook's parent is the Claude Code process)
+# Shared derivation. This used ${AGENT_PID:-$PPID} alone, ignoring both the payload and
+# BATONDECK_SESSION_ID, so it could name a different session than every other site.
+BD_SID_HINT=""   # no payload here; must not inherit a stale hint
+. "$(cd "$(dirname "$0")" && pwd)/session-id.sh"
+SID="${BD_SID}"
 state="${BATONDECK_STATE_DIR:-${TMPDIR:-/tmp}/batondeck}"; mkdir -p "$state" 2>/dev/null || true
 pidf="$state/listener-$SID.pid"
 

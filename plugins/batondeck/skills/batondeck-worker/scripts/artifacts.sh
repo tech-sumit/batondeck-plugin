@@ -32,6 +32,12 @@ if [ -d .hg ] || hg root >/dev/null 2>&1; then
   sha="$(hg id -i 2>/dev/null || true)"
   remote="$(hg paths default 2>/dev/null || true)"
 else
+  # *** SCRUB THE INHERITED GIT ENVIRONMENT. *** git honours GIT_DIR over the cwd, so under any
+  # git-invoked process (a hook, `git rebase -x`, a CI step inside a git callback) every value below
+  # would describe the INHERITED repository — and these are written onto the ticket as the deliverable's
+  # provenance, i.e. a confidently wrong branch and sha. Same expression the identity block uses.
+  git() { command env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR \
+            -u GIT_OBJECT_DIRECTORY command git "$@"; }
   git rev-parse --git-dir >/dev/null 2>&1 || { echo '[]'; exit 0; }
   branch="$(git branch --show-current 2>/dev/null || true)"
   sha="$(git rev-parse --short HEAD 2>/dev/null || true)"

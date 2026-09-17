@@ -3,7 +3,7 @@
     "batondeck": {
       "type": "http",
       "url": "https://mcp.batondeck.com/mcp",
-      "headersHelper": "\"${CLAUDE_PLUGIN_ROOT}/scripts/agent-id.sh\" --headers"
+      "headersHelper": "\"${CLAUDE_PLUGIN_ROOT}/scripts/agent-id.sh\" --headers \"${CLAUDE_PROJECT_DIR}\""
     }
   }
 }

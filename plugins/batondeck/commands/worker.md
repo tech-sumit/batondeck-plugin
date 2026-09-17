@@ -14,9 +14,13 @@ discover with `list_projects` → `list_boards`.
 
 Setup (once):
 
-1. Resolve project, board, and your agent name (the `x-batondeck-agent` value; export
-   `BATONDECK_AGENT` for the shell scripts). Optionally `register_agent_profile` so selection can use
-   `useProfile:true`.
+1. Resolve project, board, and your agent name. **Your name is DERIVED, not chosen** — read it back
+   with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-id.sh" --name "$CLAUDE_PROJECT_DIR"`, which prints
+   the exact `x-batondeck-agent` value this checkout sends (`<harness>-<worktree>`). Do not invent one
+   and do not ask the user for it: the doorbell resolves BY name, so a name that is not the one on the
+   wire matches no session row and the wake never arrives. `export BATONDECK_AGENT` only affects the
+   SHELL scripts — it cannot change an already-connected MCP server's headers. Optionally
+   `register_agent_profile` so selection can use `useProfile:true`.
 2. **Arm the mode:** run `"${CLAUDE_PLUGIN_ROOT}/scripts/mode.sh" worker "P-… B-… agent=<name>"`.
 
 The loop (repeat until taken off shift):

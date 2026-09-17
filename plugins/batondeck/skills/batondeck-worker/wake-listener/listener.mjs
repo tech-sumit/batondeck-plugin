@@ -159,8 +159,12 @@ export function deliver({ file, record, fs = { appendFileSync, mkdirSync }, dir 
   fs.appendFileSync(file, JSON.stringify(record) + '\n');
 }
 
-export function deliveryFile({ home = homedir(), sessionId }) {
-  const dir = join(home, '.batondeck', 'wake');
+export function deliveryFile({ home = homedir(), stateDir, sessionId }) {
+  // BATONDECK_STATE_DIR is honoured here so the waiter and the listener land on the SAME file when a
+  // user follows skill/SKILL.md's advice to isolate agents by state dir. `home` stays the injected
+  // seam the tests drive; the explicit `stateDir` argument wins over both.
+  const base = stateDir || process.env['BATONDECK_STATE_DIR'] || join(home, '.batondeck');
+  const dir = join(base, 'wake');
   return { dir, file: join(dir, `${sessionId || 'default'}.jsonl`) };
 }
 

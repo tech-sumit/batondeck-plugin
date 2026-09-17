@@ -6,7 +6,10 @@
 #   mode.sh off
 set -euo pipefail
 dir="${BATONDECK_STATE_DIR:-$HOME/.batondeck}"; mkdir -p "${dir}"
-sid="${BATONDECK_SESSION_ID:-default}"
+# Shared derivation — this wrote `mode-default` while stop-gate.sh read `mode-<sid>`.
+BD_SID_HINT=""   # no payload here; must not inherit a stale hint
+. "$(cd "$(dirname "$0")" && pwd)/session-id.sh"
+sid="${BD_SID}"
 f="${dir}/mode-${sid}"
 case "${1:?usage: mode.sh worker|master|off [note]}" in
   worker|master)

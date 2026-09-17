@@ -5,7 +5,9 @@ description: Work the tickets assigned to you — drain your BatonDeck inbox by 
 Work every ticket the board has routed to **you** (the task's `assignee` = your agent name) on BatonDeck,
 over MCP. BatonDeck is pull-based — you pick up assigned work when prompted; nothing is pushed.
 
-Inputs: $ARGUMENTS — your agent name (the exact `x-batondeck-agent` value humans assign to), and
+Inputs: $ARGUMENTS — your agent name (the exact `x-batondeck-agent` value humans assign to; it is
+DERIVED — read it with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-id.sh" --name "$CLAUDE_PROJECT_DIR"`
+rather than guessing, since a guessed name matches no session row), and
 optionally the project/board. If you don't know the project/board, discover them first with
 `list_projects` → `list_boards`.
 

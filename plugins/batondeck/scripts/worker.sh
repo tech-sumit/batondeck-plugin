@@ -12,7 +12,19 @@
 #      on their issuer, and `gcloud auth activate-service-account` does not change that.
 #      IDLE_SLEEP  seconds between polls when nothing is workable (default 5)
 set -euo pipefail
+# The checkout the USER launched us from, captured BEFORE the cd below. `mcp.sh` resolves its own
+# project dir from ${CLAUDE_PROJECT_DIR:-.}, and after that cd `.` is the plugin INSTALL directory —
+# never a linked worktree — so headless (CLAUDE_PROJECT_DIR unset) every lane collapsed onto the legacy
+# shared id with no display name. Export both halves explicitly rather than relying on a cwd we change.
+BD_LAUNCH_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 cd "$(dirname "$0")"
+# Identity resolved from the launch dir (see BD_LAUNCH_DIR above). Blank is never exported: a blank id
+# overrides mcp.sh's own resolution, and a blank name makes the core rename the row to 'agent'.
+_bd_aid="${BATONDECK_AGENT_ID:-$(bash "$(dirname "$0")/agent-id.sh" "${BD_LAUNCH_DIR}" 2>/dev/null)}"
+_bd_nm="${BATONDECK_AGENT:-$(bash "$(dirname "$0")/agent-id.sh" --name "${BD_LAUNCH_DIR}" 2>/dev/null)}"
+[ -n "${_bd_aid}" ] && export BATONDECK_AGENT_ID="${_bd_aid}"
+[ -n "${_bd_nm}" ]  && export BATONDECK_AGENT="${_bd_nm}"
+export CLAUDE_PROJECT_DIR="${BD_LAUNCH_DIR}"
 : "${BATONDECK_PROJECT:?set BATONDECK_PROJECT (P-...)}"
 : "${BATONDECK_BOARD:?set BATONDECK_BOARD (B-...)}"
 : "${AGENT_CMD:?set AGENT_CMD: command run as: AGENT_CMD <taskId> <leaseId>}"

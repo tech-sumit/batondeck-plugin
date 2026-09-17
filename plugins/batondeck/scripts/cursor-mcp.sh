@@ -28,8 +28,18 @@ args=("${URL}")
 # the owner's single `id:<identityId>` row. Injected as a LITERAL here on purpose: Cursor is reported
 # not to expand `${env:VAR}` inside `headers` for remote http/sse servers, and this stdio wrapper
 # sidesteps that question entirely. Empty (unpersistable state dir) → header omitted → old behaviour.
-aid="$("$(dirname "$0")/agent-id.sh" 2>/dev/null)"
+# The checkout is passed EXPLICITLY. Without it the helper resolves from the cwd, and a stdio wrapper's
+# cwd is whatever the client happened to launch it in — so the id was decided by something this script
+# does not control. `${CLAUDE_PROJECT_DIR}` is not set for Cursor, hence $PWD as the fallback.
+bd_proj="${BATONDECK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+aid="$("$(dirname "$0")/agent-id.sh" "${bd_proj}" 2>/dev/null)"
 [ -n "${aid}" ] && args+=(--header "x-batondeck-agent-id: ${aid}")
-[ -n "${BATONDECK_AGENT:-}" ] && args+=(--header "x-batondeck-agent: ${BATONDECK_AGENT}")
+# *** THE NAME MUST BE SENT, NOT JUST THE ID. *** This producer sent only the id, so a Cursor user got a
+# per-worktree identity the DOORBELL COULD NOT ADDRESS: wake resolves by display NAME
+# (src/wake/publisher.ts -> findLiveAgentSessionsByName), and with no name header the server falls back
+# to the MCP client's own name — one string shared by every worktree. `--name` is the same value the
+# plugin's headersHelper sends, so both producers present one identity.
+bd_name="${BATONDECK_AGENT:-$("$(dirname "$0")/agent-id.sh" --name "${bd_proj}" 2>/dev/null)}"
+[ -n "${bd_name}" ] && args+=(--header "x-batondeck-agent: ${bd_name}")
 
 exec npx -y mcp-remote "${args[@]}"

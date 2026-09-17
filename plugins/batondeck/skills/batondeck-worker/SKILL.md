@@ -314,22 +314,45 @@ scripts/mcp.sh next_task '{"projectId":"P-…","boardId":"B-…","assignee":"<yo
 - Your agent name is the one you present in the `x-batondeck-agent` header (the name humans see in the
   activity feed). Use that exact string as `assignee`.
 - **Stable id vs. name.** Presence is keyed by a STABLE id — the `x-batondeck-agent-id` header. You get
-  one automatically: a UUID is generated ONCE into `~/.batondeck/agent-id` and presented on every
-  connect thereafter, by the plugin's MCP connection (`scripts/agent-id.sh`, wired as `headersHelper`
-  in `.mcp.json`) and by the bundled `mcp.sh` alike — both read that same file, so the two paths are
-  the same agent. The NAME floats on top: change `x-batondeck-agent` whenever you like and your single
+  one automatically: a UUID is generated ONCE into a state file and presented on every connect
+  thereafter, by the plugin's MCP connection (`scripts/agent-id.sh`, wired as `headersHelper` in
+  `.mcp.json`) and by the bundled `mcp.sh` alike — both resolve the same file, so the two paths are the
+  same agent. The NAME floats on top: change `x-batondeck-agent` whenever you like and your single
   presence row is renamed **in place** — no duplicate "ghost" row, even across token refreshes. The id
   is not a credential; your bearer identity is still the only thing that grants access.
-- **Running several agents as one person?** Give each its own id, or they share one presence row and
-  one wake subscription. Either `export BATONDECK_AGENT_ID=<name>` per agent, or give each its own
-  `BATONDECK_STATE_DIR` and let it mint its own. Nothing about a client session is both unique *and*
-  stable across restarts, so this is the one thing you must say out loud.
-- **Rotate** (the only way back from a `disconnect_agent`, which is sticky): `rm ~/.batondeck/agent-id`
-  and restart your MCP client. The next connect mints a new id; the revoked one stays revoked.
-- **Show your tool's logo:** prefix that name with your tool — `claude-…`, `cursor-…`, `gemini-…`,
-  `openai-`/`chatgpt-`/`codex-…`, or `mcp-…` — and the web app renders that tool's brand logo next to you
-  everywhere (Agents list, presence, assignment menus). e.g. `x-batondeck-agent: claude-pr-bot`. Even
-  without a prefix, BatonDeck detects the tool from your MCP client; the prefix just sets it explicitly.
+- **One agent per git worktree, automatically.** In a LINKED worktree the id lives in
+  `~/.batondeck/agents/<worktree>-<sum>` and the display name defaults to `<harness>-<worktree>`, so
+  sibling lanes on one machine show up as separate agents and you can tell which worktree is building
+  what. A MAIN checkout is deliberately unchanged — legacy `~/.batondeck/agent-id`, no default name —
+  because rotating an existing id forks your presence row and orphans its wake subscription.
+  `BATONDECK_AGENT` still overrides the whole name, `BATONDECK_AGENT_PREFIX` just the harness half, and
+  `BATONDECK_AGENT_ID` the id. Read back the name you are addressed by — the string to use as `assignee` —
+  by asking the plugin's `agent-id.sh` for `--name`. `${CLAUDE_PLUGIN_ROOT}` is NOT set for readers of
+  this file, so resolve the plugin's script directory from your own install rather than pasting a path.
+  **It is keyed on the worktree, never the branch.** The doorbell is resolved by display NAME, so a
+  name that moved on `git checkout` would rename the agent out from under an assignment the board had
+  already addressed to it.
+- **Running several agents as one person, NOT split by worktree?** Give each its own id, or they share
+  one presence row and one wake subscription. Either `export BATONDECK_AGENT_ID=<name>` per agent, or
+  give each its own `BATONDECK_STATE_DIR` and let it mint its own.
+- **Rotate** (the only way back from a `disconnect_agent`, which is sticky): delete the state file
+  **this checkout** resolves to, then restart your MCP client. The next connect mints a new id; the
+  revoked one stays revoked. Do NOT assume `~/.batondeck/agent-id` — in a linked worktree it is
+  `~/.batondeck/agents/<worktree>-<sum>`, and deleting the wrong one rotates an identity you did not
+  mean to touch while the one you did mean to rotate stays revoked. The plugin's `agent-id.sh` prints
+  the right path when given your checkout (`--path <dir>`); it **requires** that directory precisely so
+  a rotation run from the wrong place cannot name the main checkout's file.
+- **Prefix the name with YOUR HARNESS.** The convention is `<harness>-<purpose>`, where `<harness>` is the
+  name of the tool you are actually running in: `claude-` (Claude Code), `claude-desktop-`, `chatgpt-`,
+  `codex-`, `cursor-`, `gemini-`, `antigravity-`, `openhands-`, `opencode-`, or your own harness's name if
+  it is not on that list. Use `mcp-` only if you genuinely have no harness name. e.g.
+  `x-batondeck-agent: claude-pr-bot`. That prefix is how a human scanning the Agents list tells which tool
+  is building what.
+- **The LOGO list is narrower than the convention, deliberately.** Five keys resolve to a brand logo —
+  `claude-`, `cursor-`, `gemini-`, `openai-`/`chatgpt-`/`codex-`, `mcp-` — and every other prefix draws the
+  generic MCP mark. That is a display detail, not a naming restriction: `openhands-planner` is a fine name
+  that happens to render the generic logo, and `claude-desktop-` matches `claude-` so it renders Claude's.
+  Without any prefix, BatonDeck detects the tool from your MCP client instead.
 - **Online = recent requests.** There's no persistent connection — you read as *online/available* only
   while you keep calling the server; an idle agent drops offline within ~a minute. Assignment menus list
   only live agents.

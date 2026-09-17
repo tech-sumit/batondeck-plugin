@@ -11,12 +11,40 @@
  * Usage: node wake-wait.mjs [maxSeconds]   (default 3600)
  */
 import { existsSync, statSync, openSync, readSync, closeSync, watch, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const maxSec = Number(process.argv[2] ?? 3600);
-const sid = process.env['BATONDECK_SESSION_ID'] || 'default';
-const file = join(homedir(), '.batondeck', 'wake', `${sid}.jsonl`);
+// TWO defects were here, in one expression.
+//
+// 1. BATONDECK_STATE_DIR was honoured for this script's PIDFILE (below) and ignored for the delivery
+//    file — in the same file. skill/SKILL.md sells that variable as THE way to run several agents under
+//    one person, so following that advice isolated the ids and left every agent's deliveries in one
+//    shared directory.
+// 2. Falling back to 'default' made this watch a filename nobody writes. The listener is started from a
+//    hook that HAS the session id in its payload; a Bash tool running this script does not, and no
+//    chain of env vars can invent it. So the session waited on `default.jsonl` while deliveries landed
+//    in `<payload-sid>.jsonl`, the stop gate saw a live wait pidfile and permitted the idle, and the
+//    session slept forever on the only delivery path there is.
+// The pin is written by plugin/scripts/session-id.sh by whichever caller had a definitive source.
+const stateDir = process.env['BATONDECK_STATE_DIR'] || join(homedir(), '.batondeck');
+function pinnedSessionId() {
+  try {
+    // Sanitized on read: it becomes a path segment.
+    return (readFileSync(join(stateDir, 'session-id'), 'utf8') || '')
+      // Stripping control characters IS the purpose here: this value becomes a path segment, and an
+      // embedded newline or NUL is exactly what must not survive into a filename.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f]/g, '')
+      .replace(/[^A-Za-z0-9._-]/g, '-')
+      .slice(0, 64);
+  } catch {
+    return '';
+  }
+}
+const sid = process.env['BATONDECK_SESSION_ID'] || pinnedSessionId() || 'default';
+const file = join(stateDir, 'wake', `${sid}.jsonl`);
 
 /** Events worth waking for. A 'listening' line is bookkeeping; the rest all change what the agent should do. */
 const WAKES = new Set(['doorbell', 'signin-required', 'unavailable', 'detached']);
@@ -62,7 +90,7 @@ const woke = (lines) => {
  * and removed on every exit path — including the timeout — because a stale pidfile would tell the gate
  * an ear exists when none does, which is the more dangerous direction.
  */
-const stateDir = process.env['BATONDECK_STATE_DIR'] || join(homedir(), '.batondeck');
+// stateDir is declared once, above — the pidfile and the delivery file MUST agree on it.
 const pidFile = join(stateDir, `wake-wait-${sid}-${process.pid}.pid`);
 try {
   mkdirSync(stateDir, { recursive: true });

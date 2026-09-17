@@ -7,6 +7,11 @@ input="$(cat || true)"
 sid="$(printf '%s' "${input}" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("session_id",""))
 except Exception: print("")')"
+# PIN the payload session id unconditionally, not only when $CLAUDE_ENV_FILE exists. That export
+# was the ONLY way other processes learned this value, so with the var absent the listener and
+# the waiter picked different filenames and the session slept forever.
+BD_SID_HINT="${sid}"
+. "$(cd "$(dirname "$0")/../scripts" && pwd)/session-id.sh"
 dir="${BATONDECK_STATE_DIR:-$HOME/.batondeck}"
 case "${1:-}" in
   start)
